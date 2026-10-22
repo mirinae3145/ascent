@@ -42,6 +42,10 @@ Read that parent's README for the shared context when working in the subworkspac
 Use the existing layout.
 A common arrangement has a README and `targets/` links to independent work targets, with project records in README sections until separate documents are useful.
 Do not create empty folders or impose a fixed record schema.
+Create new workspaces as ordinary directories by default; Git initialization is optional.
+Project coordination records generally have less need for version control than code, and this default favors fast iteration with an agent.
+Connect codebases as independently versioned targets.
+A workspace may itself be a repository when its purpose calls for versioned records or collaboration through Git; preserve that choice for existing workspaces.
 If the user has a workspace manager, follow its existing discovery and installation conventions; Ascent does not require one.
 When migrating an existing workspace policy to this skill, read [the integration guide](references/integration.md) for the entry path and responsibility split.
 

@@ -3,6 +3,11 @@
 Ascent is a workspace workflow for maintaining knowledge, decisions, and coordination toward a shared objective across independently managed repositories and other work targets.
 A workspace is a project context, not a replacement for its targets' own contents or history.
 
+Ascent is designed around workspaces that are ordinary directories by default.
+Project coordination records generally have less need for version control than code, so this default favors fast iteration with an agent.
+Connect codebases as independently versioned targets.
+A workspace may itself be a repository when its purpose calls for versioned records or collaboration through Git.
+
 ## Start
 
 Install [the Ascent skill](skills/ascent/SKILL.md) with your agent's skill installer, or place that directory in its supported skill location.
