@@ -43,6 +43,8 @@ Patterns must be relative and cannot contain parent traversal.
 Hidden directories, `targets`, dependency directories, symbolic links, and agent instruction files (`AGENTS.md`, `CLAUDE.md`) are skipped regardless of patterns.
 The hook maintains project knowledge, not agent instruction policy.
 These defaults deliberately omit other document locations; select additional locations when needed.
+Directories that cannot contain a match for the selected patterns are not traversed.
+An unavailable directory within the selected scope still invalidates the snapshot rather than being treated as deleted documents.
 Document edits are an observation signal, not proof of which actor made them or whether useful knowledge exists.
 Read-only research with no document edits does not advance the counter.
 
