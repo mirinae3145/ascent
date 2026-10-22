@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Observe selected Ascent documents and request bounded Codex refinement."""
+"""Observe selected Ascent documents and request bounded document refinement."""
 from __future__ import annotations
 
 import argparse

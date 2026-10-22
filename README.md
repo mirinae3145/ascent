@@ -19,7 +19,7 @@ The skill defines their responsibilities and how they connect without requiring 
 
 ## Optional document refinement hook
 
-[The Codex hook](skills/ascent/references/hooks.md) detects changes to selected project documents and requests one focused refinement pass every N changed turns.
+[The Codex and Claude Code hook](skills/ascent/references/hooks.md) detects changes to selected project documents and requests one focused refinement pass every N changed turns.
 The default is five; it is configurable.
 It uses the same model already working on the task and preserves existing permissions.
 No additional model, service, or network dependency is required.

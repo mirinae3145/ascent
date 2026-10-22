@@ -47,6 +47,8 @@ These roles may be separate sections in one file or separate documents.
 Link their canonical locations instead of repeating detailed accounts in each one.
 Keep knowledge and necessary evidence, while allowing current-state prose to be rewritten as the current account rather than becoming an append-only changelog.
 Preserving history does not require copying full transcripts or keeping all historical detail in current state.
+For example, when a later check overturns an earlier result, update current state with the new conclusion and its limits, preserve the earlier observation with its original conditions in history, and link the new evidence.
+If a consequential decision depended on that result, mark whether it still applies or has been superseded; do not erase its original rationale.
 
 Keep confirmed findings, assumptions, proposals, and open questions distinguishable.
 Retain temporary failures, device paths, installation details, or execution history only where they affect interpretation, reproduction, or continuation; scope such observations to the device and conditions actually checked.
@@ -55,10 +57,11 @@ Store maintained implementation and analysis code in the responsible versioned t
 
 Keep records reachable from the README so another session can continue without the original conversation.
 Update existing content first, adding documents only when their role warrants it.
+If the records already capture the relevant knowledge accurately and coherently, finish without rewriting them or adding a maintenance report.
 Document maintenance follows the authorized task scope; read-only review does not authorize edits merely because continuity would benefit.
 
 ## Optional refinement trigger
 
 The workflow does not require automation.
-When asked to configure or troubleshoot the bundled Codex document-refinement hook, read [the hook guide](references/hooks.md).
+When asked to configure or troubleshoot the bundled Codex and Claude Code document-refinement hook, read [the hook guide](references/hooks.md).
 The hook supplies a bounded opportunity to apply the maintenance principles above; it does not grant permissions, conclude a task, or mandate a new report.
