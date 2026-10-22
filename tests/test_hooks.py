@@ -241,6 +241,39 @@ class HooksTest(unittest.TestCase):
         finally:
             docs.chmod(original)
 
+    def test_unselected_unreadable_directory_does_not_disable_observation(self):
+        unrelated = self.workspace / 'raw-data'
+        unrelated.mkdir()
+        unrelated.chmod(0)
+        self.addCleanup(unrelated.chmod, 0o700)
+        if os.access(unrelated, os.R_OK):
+            self.skipTest('runtime can bypass directory permissions')
+        self.call('UserPromptSubmit')
+        self.change('docs/note.md')
+        self.assertEqual(self.call('Stop', interval=1)['decision'], 'block')
+
+    def test_exact_include_skips_unreadable_sibling_directory(self):
+        self.change('docs/selected.md', 'before')
+        sibling = self.workspace / 'docs' / 'other'
+        sibling.mkdir()
+        sibling.chmod(0)
+        self.addCleanup(sibling.chmod, 0o700)
+        if os.access(sibling, os.R_OK):
+            self.skipTest('runtime can bypass directory permissions')
+        options = ['--include', 'docs/selected.md']
+        self.call('UserPromptSubmit', options=options)
+        self.change('docs/selected.md', 'after')
+        self.assertEqual(self.call('Stop', interval=1, options=options)['decision'], 'block')
+
+    def test_directory_wildcards_keep_matching_descendants(self):
+        options = ['--include', 'notes-*/**/entry-?.md']
+        self.call('UserPromptSubmit', options=options)
+        self.change('notes-a/entry-1.md')
+        self.change('notes-b/deep/entry-2.md')
+        self.change('other/entry-3.md')
+        self.call('Stop', options=options)
+        self.assertEqual(self.state()['pending'], ['notes-a/entry-1.md', 'notes-b/deep/entry-2.md'])
+
     def test_oversized_snapshot_does_not_count_partial_deletion(self):
         self.call('UserPromptSubmit')
         self.change('huge.md', 'x'*(2*1024*1024+1))

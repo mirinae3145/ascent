@@ -64,6 +64,17 @@ def match_parts(parts: tuple[str, ...], pattern: tuple[str, ...]) -> bool:
     return bool(parts) and fnmatch.fnmatchcase(parts[0], pattern[0]) and match_parts(parts[1:], pattern[1:])
 
 
+def may_contain_match(parts: tuple[str, ...], pattern: tuple[str, ...]) -> bool:
+    """Whether a directory prefix can lead to a matching descendant file."""
+    if not parts:
+        return bool(pattern)
+    if not pattern:
+        return False
+    if pattern[0] == '**':
+        return may_contain_match(parts, pattern[1:]) or may_contain_match(parts[1:], pattern)
+    return fnmatch.fnmatchcase(parts[0], pattern[0]) and may_contain_match(parts[1:], pattern[1:])
+
+
 def snapshot(root: Path, patterns: list[str]) -> dict[str, str]:
     parsed = [tuple(p.split('/')) for p in patterns]
     result = {}
@@ -73,7 +84,13 @@ def snapshot(root: Path, patterns: list[str]) -> dict[str, str]:
         raise error
     for directory, dirs, files in os.walk(root, followlinks=False, onerror=directory_error):
         parent = Path(directory)
-        dirs[:] = sorted(d for d in dirs if not d.startswith('.') and d not in SKIP_DIRS and not (parent / d).is_symlink())
+        # Prune before os.walk opens child directories: an unrelated tree must
+        # neither consume traversal time nor make selected evidence unavailable.
+        dirs[:] = sorted(
+            d for d in dirs
+            if not d.startswith('.') and d not in SKIP_DIRS and not (parent / d).is_symlink()
+            and any(may_contain_match((parent / d).relative_to(root).parts, p) for p in parsed)
+        )
         for name in sorted(files):
             path = parent / name
             if name in SKIP_FILES or path.suffix.lower() != '.md' or path.is_symlink():
