@@ -9,11 +9,11 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import re
 import stat
 import sys
 import tempfile
 import time
+import tomllib
 
 DEFAULT_INCLUDES = ('*.md', 'docs/**/*.md', 'records/**/*.md', 'decisions/**/*.md')
 SKIP_DIRS = {'targets', 'node_modules', 'venv', '__pycache__'}
@@ -21,10 +21,7 @@ SKIP_FILES = {'AGENTS.md', 'CLAUDE.md'}
 MAX_FILE = 2 * 1024 * 1024
 MAX_TOTAL = 16 * 1024 * 1024
 MAX_FILES = 2000
-DECLARATIONS = (
-    re.compile(r'This directory is an Ascent workspace\.', re.IGNORECASE),
-    re.compile(r'이 디렉터리는 Ascent 워크스페이스입니다\.'),
-)
+WORKSPACE_FILE = '.ascent.toml'
 
 
 class Parser(argparse.ArgumentParser):
@@ -34,26 +31,28 @@ class Parser(argparse.ArgumentParser):
         raise ValueError(message)
 
 
-def declared_workspace(cwd: str) -> Path | None:
+def workspace_root(cwd: str) -> Path | None:
+    """Identify only this directory; marker contents do not determine identity."""
     root = Path(cwd)
     if not root.is_absolute() or not root.is_dir():
         return None
     root = root.resolve()
-    readme = root / 'README.md'
-    if readme.is_symlink() or not readme.is_file():
+    try:
+        info = (root / WORKSPACE_FILE).lstat()
+    except FileNotFoundError:
         return None
-    with readme.open('rb') as stream:
-        lines = stream.read(16384).decode('utf-8', errors='replace').splitlines()[:40]
-    fence = None
-    for line in lines:
-        line = line.strip()
-        if line.startswith(('```', '~~~')):
-            marker = line[:3]
-            fence = marker if fence is None else (None if fence == marker else fence)
-            continue
-        if fence is None and any(pattern.fullmatch(line) for pattern in DECLARATIONS):
-            return root
-    return None
+    if not stat.S_ISREG(info.st_mode):
+        raise ValueError('workspace marker must be a regular file, not a symbolic link')
+    return root
+
+
+def validate_workspace_config(root: Path) -> None:
+    """Validate bounded UTF-8 TOML; no workspace setting keys are consumed yet."""
+    with (root / WORKSPACE_FILE).open('rb') as stream:
+        contents = stream.read(MAX_FILE + 1)
+    if len(contents) > MAX_FILE:
+        raise ValueError('workspace config exceeds size limit')
+    tomllib.loads(contents.decode('utf-8'))
 
 
 def match_parts(parts: tuple[str, ...], pattern: tuple[str, ...]) -> bool:
@@ -218,12 +217,14 @@ def workspace_state_path(root: Path, state_dir: Path) -> Path:
 
 def diagnose(workspace: Path, args) -> dict:
     """Inspect local prerequisites and saved state without creating or updating it."""
-    report = {'status': 'error', 'stage': 'declaration'}
+    report = {'status': 'error', 'stage': 'marker'}
     try:
-        root = declared_workspace(str(workspace.expanduser().resolve()))
+        root = workspace_root(str(workspace.expanduser().resolve()))
         if root is None:
-            return {'status': 'not-ascent', 'stage': 'declaration'}
-        report.update(workspace=str(root), stage='state-location')
+            return {'status': 'not-ascent', 'stage': 'marker'}
+        report.update(workspace=str(root), stage='config')
+        validate_workspace_config(root)
+        report.update(stage='state-location')
         path = workspace_state_path(root, args.state_dir)
         report.update(state_path=str(path), stage='snapshot')
         current = snapshot(root, args.include)
@@ -260,9 +261,10 @@ def handle(event: dict, args) -> dict | None:
     for field, value in (('session_id', event.get('session_id')), ('turn_id or prompt_id', turn), ('cwd', event.get('cwd'))):
         if not isinstance(value, str) or not value:
             raise ValueError(f'missing event field: {field}')
-    root = declared_workspace(event['cwd'])
+    root = workspace_root(event['cwd'])
     if root is None:
         return None
+    validate_workspace_config(root)
     path = workspace_state_path(root, args.state_dir)
     current = snapshot(root, args.include)
     now = time.time()

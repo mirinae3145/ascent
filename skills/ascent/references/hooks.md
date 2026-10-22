@@ -14,15 +14,13 @@ A missing or invalid identifier skips observation rather than guessing a turn fr
 Other events, malformed input, unavailable files, invalid state, lock timeouts, and plan mode fail open without requesting continuation.
 Diagnostics go to stderr without copying the prompt, transcript, or file contents.
 
-The event's `cwd` must itself contain `README.md` with a standalone declaration near the beginning:
-
-- `This directory is an Ascent workspace.` (case-insensitive)
-- `이 디렉터리는 Ascent 워크스페이스입니다.` (existing Korean workspaces)
-
-The check ignores quoted examples and fenced code.
-It does not search parent folders or infer ownership from a `targets/` name.
-Start the session in its declared workspace; a session started directly in an independent target is outside scope.
-Paths are resolved for workspace identity so different symbolic entry paths share one counter.
+The event's `cwd` must itself contain `.ascent.toml`, following the skill's [workspace policy](../SKILL.md#establish-the-workspace).
+The hook does not recognize README declarations alone; the agent retains them as a supplemental entry path and points to the [transition procedure](integration.md#transition-from-readme-declarations) when the marker is missing.
+The hook checks the marker, then validates its configuration before reading documents or accessing saved state.
+Invalid TOML, invalid UTF-8, an oversized or unreadable config, or a non-regular marker skips observation without changing saved state.
+The hook does not require or read a README to identify the workspace; a README is still part of the agent workflow and is observed as a document when selected.
+Start the session in its marked workspace; a session started directly in an independent target is outside scope unless that target has its own marker.
+Different symbolic workspace entry paths share one counter through their resolved path.
 The scope is coordination, not authentication or a sandbox boundary.
 
 On `UserPromptSubmit`, snapshot selected Markdown documents.
@@ -41,6 +39,7 @@ A single `*` stays within a path segment; `**` spans zero or more directories.
 Repeat `--include PATTERN` to replace those defaults for a particular registration.
 Patterns must be relative and cannot contain parent traversal.
 Hidden directories, `targets`, dependency directories, symbolic links, and agent instruction files (`AGENTS.md`, `CLAUDE.md`) are skipped regardless of patterns.
+The `.ascent.toml` file is configuration, not a refinement document; changes to it do not advance the counter.
 The hook maintains project knowledge, not agent instruction policy.
 These defaults deliberately omit other document locations; select additional locations when needed.
 Directories that cannot contain a match for the selected patterns are not traversed.
@@ -86,10 +85,11 @@ python3 /absolute/ascent/skills/ascent/scripts/ascent_hook.py --diagnose /absolu
 ```
 
 This mode does not read event input, create state or lock files, change counters, or request continuation.
-Its JSON reports whether the workspace declaration is recognized, selected document paths, the state location, accumulated count and pending paths, session counts, and the last dispatched request.
+Its JSON reports whether the workspace marker and configuration are valid, selected document paths, the state location, accumulated count and pending paths, session counts, and the last dispatched request.
 It includes no document contents, hashes, prompts, or transcript data.
 `status: "ok"` means local inspection succeeded, including when no saved state exists; it does not prove host registration or callback delivery.
-`status: "not-ascent"` means the directory has no recognized declaration.
+`status: "not-ascent"` with `stage: "marker"` means the directory has no workspace marker.
+An invalid marker type reports `status: "error"` with `stage: "marker"`; invalid or unreadable contents report `stage: "config"` and include the resolved workspace path.
 Inspection failures return `status: "error"`, the failing stage and exception type, and exit status 1; ordinary event handling retains its fail-open behavior.
 Invalid diagnostic arguments use the same error response with `stage: "options"`, including argument-parsing failures.
 `awaiting_stop` counts saved unhandled snapshots and can include interrupted sessions, so it is not a count of currently running agents.

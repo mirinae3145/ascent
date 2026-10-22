@@ -1,6 +1,13 @@
 ---
 name: ascent
-description: Create, enter, resume, or maintain an Ascent workspace that connects independent work targets and preserves project knowledge, decisions, and current state.
+description: >-
+  Create, enter, resume, or maintain an Ascent workspace connecting independent
+  work targets. Use for ordinary tasks, including work confined to one linked
+  target, when the starting or explicitly selected workspace directory contains
+  .ascent.toml. Also use when that directory's README explicitly identifies it
+  as an Ascent workspace; guide migration if the marker is missing. Explicit
+  workspace creation or migration requests apply before a marker exists.
+  Mentions in documentation or examples alone do not trigger this skill.
 ---
 
 # Ascent
@@ -11,10 +18,25 @@ Targets keep their own contents, guidance, history, and lifecycle; linking one d
 
 ## Establish the workspace
 
-Start from the selected workspace's README.
-Declare its Ascent identity near the beginning; for new workspaces use the standalone sentence `This directory is an Ascent workspace.`
+Apply this workflow to ordinary tasks started in a workspace, including work confined to one linked target, as well as explicit workspace creation, entry, resumption, or maintenance requests.
+Identify a workspace by a regular `.ascent.toml` file directly in the selected directory.
+An empty file is valid; contents must be UTF-8 TOML within 2 MiB.
+No setting keys are interpreted yet; hook options remain command-line arguments.
+Resolve the selected directory's symbolic links before checking, so a linked directory and its original path identify the same workspace.
+The marker file itself must not be a symbolic link or directory.
+Do not search parent directories or infer marker-based identity from directory names, target links, Git, or an installation manager.
+An invalid or unreadable configuration is a workspace error, not evidence that the directory is an ordinary non-workspace.
+
+For an existing workspace without `.ascent.toml`, retain its README's explicit identification of the directory as an Ascent workspace as a supplemental entry path.
+An explicit request to enter or resume an existing unmarked workspace also uses this path.
+Read and point the user to [the transition procedure](references/integration.md#transition-from-readme-declarations), and use the existing README and linked records for the authorized task.
+This entry path does not activate the hook or authorize creating the marker during read-only work.
+Descriptions of Ascent and declarations quoted as examples do not identify the containing directory as a workspace.
+
+Start from the identified workspace's README.
 The README explains the objective and scope, the targets' roles and relationships, and where current knowledge and work records live.
-A subworkspace used as a direct session entry point also declares its identity and links to its parent workspace.
+No fixed declaration sentence or Markdown format is required.
+A subworkspace used as a direct session entry point also has its own `.ascent.toml` and links to its parent workspace in its README.
 Read that parent's README for the shared context when working in the subworkspace.
 
 Use the existing layout.

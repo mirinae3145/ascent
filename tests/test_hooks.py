@@ -18,7 +18,8 @@ class HooksTest(unittest.TestCase):
         self.base = Path(self.temp.name)
         self.workspace = self.base / 'workspace'
         self.workspace.mkdir()
-        (self.workspace / 'README.md').write_text('# Sample\n\nThis directory is an Ascent workspace.\n', encoding='utf-8')
+        (self.workspace / '.ascent.toml').touch()
+        (self.workspace / 'README.md').write_text('# Sample\n', encoding='utf-8')
         self.state_dir = self.base / 'state'
 
     def call(self, kind, turn='t1', session='s1', root=None, interval=5, options=(), **fields):
@@ -52,24 +53,139 @@ class HooksTest(unittest.TestCase):
         p.write_text(text, encoding='utf-8')
         return p
 
-    def test_non_ascent_and_quoted_examples_do_not_create_state(self):
-        for content in ['# A project about Ascent\n', '> This directory is an Ascent workspace.\n',
-                        '```md\nThis directory is an Ascent workspace.\n```\n']:
-            (self.workspace/'README.md').write_text(content)
+    def test_readme_declarations_without_marker_do_not_create_state(self):
+        (self.workspace / '.ascent.toml').unlink()
+        for content in ['# A project about Ascent\n', 'This directory is an Ascent workspace.\n',
+                        '이 디렉터리는 Ascent 워크스페이스입니다.\n',
+                        '> This directory is an Ascent workspace.\n',
+                        '```md\nThis directory is an Ascent workspace.\n```\n',
+                        'Create an empty `.ascent.toml` file.\n']:
+            (self.workspace/'README.md').write_text(content, encoding='utf-8')
             self.assertIsNone(self.call('UserPromptSubmit'))
             self.assertIsNone(self.call('Stop'))
         self.assertFalse(self.state_dir.exists())
 
-    def test_declaration_must_be_near_beginning(self):
-        (self.workspace/'README.md').write_text('\n'*40 + 'This directory is an Ascent workspace.\n')
-        self.assertIsNone(self.call('UserPromptSubmit'))
-        self.assertFalse(self.state_dir.exists())
-
-    def test_korean_declaration(self):
-        (self.workspace/'README.md').write_text('# 프로젝트\n\n이 디렉터리는 Ascent 워크스페이스입니다.\n', encoding='utf-8')
+    def test_empty_marker_works_without_readme(self):
+        (self.workspace / 'README.md').unlink()
+        result, report = self.diagnose()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(report['status'], 'ok')
+        self.assertEqual(report['selected_paths'], [])
         self.call('UserPromptSubmit')
         self.change()
         self.assertEqual(self.call('Stop', interval=1)['decision'], 'block')
+
+    def test_readme_wording_does_not_control_identity(self):
+        for n, content in enumerate(['# 프로젝트\n', '\n'*40 + 'Workspace notes\n',
+                                     '> This directory is an Ascent workspace.\n']):
+            with self.subTest(content=content):
+                (self.workspace / 'README.md').write_text(content, encoding='utf-8')
+                self.call('UserPromptSubmit', turn=f't{n}')
+                self.change(text=f'change {n}')
+                self.assertEqual(self.call('Stop', turn=f't{n}', interval=1)['decision'], 'block')
+
+    def test_valid_toml_keys_do_not_override_hook_options(self):
+        (self.workspace / '.ascent.toml').write_text('# Future settings\n[hook]\ninterval = 1\n')
+        self.call('UserPromptSubmit')
+        self.change()
+        self.assertIsNone(self.call('Stop'))
+        self.assertEqual(self.state()['count'], 1)
+
+    def test_invalid_workspace_config_fails_open_before_state_creation(self):
+        for content in [b'private = [', b'\xff', b'#' + b'x' * (2 * 1024 * 1024)]:
+            with self.subTest(size=len(content)):
+                (self.workspace / '.ascent.toml').write_bytes(content)
+                result, report = self.diagnose()
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertEqual(report['status'], 'error')
+                self.assertEqual(report['stage'], 'config')
+                self.assertEqual(report['workspace'], str(self.workspace.resolve()))
+                self.assertNotIn('private', result.stdout)
+                self.assertIsNone(self.call('UserPromptSubmit'))
+                self.assertIsNone(self.call('Stop'))
+                self.assertFalse(self.state_dir.exists())
+
+    def test_invalid_config_preserves_state_until_repaired(self):
+        self.call('UserPromptSubmit')
+        path = next(self.state_dir.glob('*/state.json'))
+        before = path.read_bytes()
+        self.change()
+        marker = self.workspace / '.ascent.toml'
+        marker.write_text('broken = [')
+        self.assertIsNone(self.call('Stop', interval=1))
+        self.assertEqual(path.read_bytes(), before)
+        marker.write_text('')
+        self.assertEqual(self.call('Stop', interval=1)['decision'], 'block')
+
+    def test_unreadable_config_is_an_error_without_creating_state(self):
+        marker = self.workspace / '.ascent.toml'
+        original = marker.stat().st_mode & 0o777
+        marker.chmod(0)
+        self.addCleanup(marker.chmod, original)
+        if os.access(marker, os.R_OK):
+            self.skipTest('runtime can bypass file permissions')
+        result, report = self.diagnose()
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(report['stage'], 'config')
+        self.assertIsNone(self.call('UserPromptSubmit'))
+        self.assertFalse(self.state_dir.exists())
+
+    def test_removing_and_restoring_marker_reuses_saved_counter(self):
+        self.call('UserPromptSubmit')
+        self.change(text='first change')
+        self.call('Stop', interval=2)
+        path = next(self.state_dir.glob('*/state.json'))
+        before = path.read_bytes()
+        marker = self.workspace / '.ascent.toml'
+        marker.unlink()
+        self.assertIsNone(self.call('UserPromptSubmit', turn='t2'))
+        self.assertIsNone(self.call('Stop', turn='t2'))
+        self.assertEqual(path.read_bytes(), before)
+        marker.touch()
+        self.call('UserPromptSubmit', turn='t3')
+        self.change(text='second change')
+        self.assertEqual(self.call('Stop', turn='t3', interval=2)['decision'], 'block')
+        self.assertEqual(self.state()['last_request']['changed_turns'], 2)
+
+    def test_marker_must_be_a_regular_file(self):
+        marker = self.workspace / '.ascent.toml'
+        marker.unlink()
+        marker.mkdir()
+        self.assertIsNone(self.call('UserPromptSubmit'))
+        result, report = self.diagnose()
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(report['stage'], 'marker')
+        self.assertFalse(self.state_dir.exists())
+
+    def test_marker_symlinks_are_errors_including_dangling_links(self):
+        marker = self.workspace / '.ascent.toml'
+        marker.unlink()
+        external = self.base / 'external.toml'
+        external.touch()
+        try:
+            marker.symlink_to(external)
+        except OSError:
+            self.skipTest('symbolic links unavailable')
+        for dangling in [False, True]:
+            if dangling:
+                external.unlink()
+            with self.subTest(dangling=dangling):
+                self.assertIsNone(self.call('UserPromptSubmit'))
+                result, report = self.diagnose()
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertEqual(report['stage'], 'marker')
+                self.assertFalse(self.state_dir.exists())
+
+    def test_marker_edits_do_not_count_as_document_changes(self):
+        self.call('UserPromptSubmit')
+        (self.workspace / '.ascent.toml').write_text('# Workspace settings\n')
+        self.assertIsNone(self.call('Stop', interval=1))
+        self.assertEqual(self.state()['count'], 0)
+
+    def test_relative_or_missing_cwd_is_not_a_workspace(self):
+        for root in ['relative/path', self.base / 'missing']:
+            self.assertIsNone(self.call('UserPromptSubmit', root=root))
+        self.assertFalse(self.state_dir.exists())
 
     def test_claude_code_prompt_id_is_the_turn_identity(self):
         claude = {'permission_mode': 'default', 'transcript_path': '/x'}
@@ -136,12 +252,14 @@ class HooksTest(unittest.TestCase):
         self.assertEqual(before, after)
 
     def test_diagnostics_distinguishes_non_ascent_and_corrupt_state(self):
+        (self.workspace / '.ascent.toml').unlink()
         (self.workspace / 'README.md').write_text('# Ordinary folder')
         result, report = self.diagnose()
         self.assertEqual(result.returncode, 0)
         self.assertEqual(report['status'], 'not-ascent')
+        self.assertEqual(report['stage'], 'marker')
         self.assertFalse(self.state_dir.exists())
-        (self.workspace / 'README.md').write_text('This directory is an Ascent workspace.')
+        (self.workspace / '.ascent.toml').touch()
         self.call('UserPromptSubmit')
         path = next(self.state_dir.glob('*/state.json'))
         path.write_text('{broken')
@@ -218,7 +336,7 @@ class HooksTest(unittest.TestCase):
     def test_workspaces_have_independent_counters(self):
         other=self.base/'other'
         other.mkdir()
-        (other/'README.md').write_text('This directory is an Ascent workspace.\n')
+        (other/'.ascent.toml').touch()
         for root in [self.workspace, other]:
             self.call('UserPromptSubmit', root=root)
             (root/'note.md').write_text('changed')
