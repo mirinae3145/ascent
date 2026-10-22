@@ -21,6 +21,7 @@ Use the existing layout.
 A common arrangement has a README and `targets/` links to independent work targets, with project records in README sections until separate documents are useful.
 Do not create empty folders or impose a fixed record schema.
 If the user has a workspace manager, follow its existing discovery and installation conventions; Ascent does not require one.
+When migrating an existing workspace policy to this skill, read [the integration guide](references/integration.md) for the entry path and responsibility split.
 
 ## Enter or resume work
 

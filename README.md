@@ -8,6 +8,7 @@ A workspace is a project context, not a replacement for its targets' own content
 Install [the Ascent skill](skills/ascent/SKILL.md) with your agent's skill installer, or place that directory in its supported skill location.
 The skill is self-contained and does not require AEM, a particular agent product, or a research workflow.
 Ask the agent to create an Ascent workspace for an objective, resume an existing workspace, or reconcile its project documents.
+When replacing an existing workspace policy, follow [the integration guide](skills/ascent/references/integration.md) to preserve its entry path and environment-specific requirements.
 
 An existing folder becomes an Ascent workspace by declaring near the beginning of its README:
 
