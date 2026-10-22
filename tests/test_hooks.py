@@ -35,6 +35,12 @@ class HooksTest(unittest.TestCase):
             return json.loads(result.stdout)
         return None
 
+    def diagnose(self):
+        result = subprocess.run([sys.executable, str(SCRIPT), '--diagnose', str(self.workspace),
+                                 '--state-dir', str(self.state_dir)],
+                                input='not an event', capture_output=True, text=True, timeout=8)
+        return result, json.loads(result.stdout)
+
     def state(self, root=None):
         states = [json.loads(p.read_text()) for p in self.state_dir.glob('*/state.json')]
         root = str((root or self.workspace).resolve())
@@ -77,6 +83,56 @@ class HooksTest(unittest.TestCase):
     def test_missing_turn_identifier_fails_open(self):
         raw = json.dumps({'hook_event_name': 'UserPromptSubmit', 'session_id': 's1', 'cwd': str(self.workspace)})
         self.assertIsNone(self.raw(raw))
+        self.assertFalse(self.state_dir.exists())
+
+    def test_diagnostics_without_state_does_not_create_files(self):
+        self.change('docs/note.md', 'PRIVATE CONTENT')
+        result, report = self.diagnose()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(report['status'], 'ok')
+        self.assertEqual(report['selected_paths'], ['README.md', 'docs/note.md'])
+        self.assertFalse(report['state_exists'])
+        self.assertFalse(self.state_dir.exists())
+        self.assertNotIn('PRIVATE CONTENT', result.stdout)
+
+    def test_diagnostics_reads_counter_without_changing_saved_state(self):
+        self.call('UserPromptSubmit')
+        self.change()
+        self.call('Stop')
+        before = {str(p): (p.read_bytes(), p.stat().st_mtime_ns)
+                  for p in self.state_dir.rglob('*') if p.is_file()}
+        result, report = self.diagnose()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(report['changed_turns'], 1)
+        self.assertEqual(report['pending_paths'], ['knowledge.md'])
+        self.assertEqual(report['sessions'], 1)
+        self.assertEqual(report['awaiting_stop'], 0)
+        after = {str(p): (p.read_bytes(), p.stat().st_mtime_ns)
+                 for p in self.state_dir.rglob('*') if p.is_file()}
+        self.assertEqual(before, after)
+
+    def test_diagnostics_distinguishes_non_ascent_and_corrupt_state(self):
+        (self.workspace / 'README.md').write_text('# Ordinary folder')
+        result, report = self.diagnose()
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(report['status'], 'not-ascent')
+        self.assertFalse(self.state_dir.exists())
+        (self.workspace / 'README.md').write_text('This directory is an Ascent workspace.')
+        self.call('UserPromptSubmit')
+        path = next(self.state_dir.glob('*/state.json'))
+        path.write_text('{broken')
+        result, report = self.diagnose()
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(report['status'], 'error')
+        self.assertEqual(report['stage'], 'state')
+        self.assertEqual(path.read_text(), '{broken')
+
+    def test_diagnostics_reports_snapshot_failure_without_new_state(self):
+        self.change('too-large.md', 'x' * (2 * 1024 * 1024 + 1))
+        result, report = self.diagnose()
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(report['stage'], 'snapshot')
+        self.assertEqual(report['error'], 'ValueError')
         self.assertFalse(self.state_dir.exists())
 
     def test_unchanged_turn_does_not_increment(self):

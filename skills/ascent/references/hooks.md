@@ -77,6 +77,23 @@ Bind the `ascent-python` runtime to the selected interpreter and explicitly appl
 AEM owns installation instead of the skill editing native files itself.
 Change the interval and include arguments consistently on both events, then reapply the definitions and review changed commands.
 
+## Inspect local observation state
+
+Run a manual diagnosis with the same interpreter, `--state-dir`, `--include`, and `--interval` options as the registered commands:
+
+```bash
+python3 /absolute/ascent/skills/ascent/scripts/ascent_hook.py --diagnose /absolute/workspace
+```
+
+This mode does not read event input, create state or lock files, change counters, or request continuation.
+Its JSON reports whether the workspace declaration is recognized, selected document paths, the state location, accumulated count and pending paths, session counts, and the last dispatched request.
+It includes no document contents, hashes, prompts, or transcript data.
+`status: "ok"` means local inspection succeeded, including when no saved state exists; it does not prove host registration or callback delivery.
+`status: "not-ascent"` means the directory has no recognized declaration.
+Inspection failures return `status: "error"`, the failing stage and exception type, and exit status 1; ordinary event handling retains its fail-open behavior.
+`awaiting_stop` counts saved unhandled snapshots and can include interrupted sessions, so it is not a count of currently running agents.
+Supply the options actually used by the host: the diagnostic reports the requested settings and does not detect disagreement between two registrations.
+
 ## Checks and limitations
 
 Tests exercise the script with isolated workspaces and event payloads, including count persistence, repeated events, target exclusion, concurrent sessions, and malformed state.

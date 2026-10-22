@@ -208,6 +208,45 @@ def refinement_request(root: Path, paths: list[str], state_path: Path) -> dict:
     return {'decision': 'block', 'reason': reason}
 
 
+def workspace_state_path(root: Path, state_dir: Path) -> Path:
+    state_root = state_dir.expanduser().resolve()
+    if state_root == root or root in state_root.parents:
+        raise ValueError('state directory must be outside the workspace')
+    key = hashlib.sha256(os.path.normcase(str(root)).encode('utf-8')).hexdigest()
+    return state_root / key / 'state.json'
+
+
+def diagnose(workspace: Path, args) -> dict:
+    """Inspect local prerequisites and saved state without creating or updating it."""
+    report = {'status': 'error', 'stage': 'declaration'}
+    try:
+        root = declared_workspace(str(workspace.expanduser().resolve()))
+        if root is None:
+            return {'status': 'not-ascent', 'stage': 'declaration'}
+        report.update(workspace=str(root), stage='state-location')
+        path = workspace_state_path(root, args.state_dir)
+        report.update(state_path=str(path), stage='snapshot')
+        current = snapshot(root, args.include)
+        report.update(selected_paths=sorted(current), stage='state')
+        exists = path.exists()
+        # State is atomically replaced by event handlers. Reading it needs no
+        # writer lock and must not create lock files or an empty state directory.
+        data = read_state(path, root)
+        last = data.get('last_request')
+        report.update(
+            status='ok', state_exists=exists, changed_turns=data['count'],
+            interval=args.interval, pending_paths=data['pending'],
+            sessions=len(data['sessions']),
+            awaiting_stop=sum(not session['handled'] for session in data['sessions'].values()),
+            last_request=({k: last.get(k) for k in ('time', 'changed_turns', 'paths')}
+                          if isinstance(last, dict) else None),
+        )
+        report.pop('stage')
+    except (OSError, ValueError, TypeError, KeyError, OverflowError) as error:
+        report['error'] = type(error).__name__
+    return report
+
+
 def handle(event: dict, args) -> dict | None:
     if not isinstance(event, dict):
         raise ValueError('expected an event object')
@@ -224,11 +263,7 @@ def handle(event: dict, args) -> dict | None:
     root = declared_workspace(event['cwd'])
     if root is None:
         return None
-    state_root = args.state_dir.expanduser().resolve()
-    if state_root == root or root in state_root.parents:
-        raise ValueError('state directory must be outside the workspace')
-    key = hashlib.sha256(os.path.normcase(str(root)).encode('utf-8')).hexdigest()
-    path = state_root / key / 'state.json'
+    path = workspace_state_path(root, args.state_dir)
     current = snapshot(root, args.include)
     now = time.time()
     sid = event['session_id']
@@ -269,6 +304,7 @@ def handle(event: dict, args) -> dict | None:
 def main() -> int:
     parser = Parser(description=__doc__)
     parser.add_argument('--interval', type=int, default=5)
+    parser.add_argument('--diagnose', type=Path, metavar='WORKSPACE', help='Inspect local observation state without reading stdin or writing state')
     parser.add_argument('--include', action='append', default=None, help='Workspace-relative document glob; repeat to replace defaults')
     parser.add_argument('--state-dir', type=Path, default=default_state_dir())
     try:
@@ -278,6 +314,10 @@ def main() -> int:
         args.include = args.include or list(DEFAULT_INCLUDES)
         if any(not p or p.startswith('/') or '\\' in p or '..' in p.split('/') for p in args.include):
             raise ValueError('include patterns must be relative without parent traversal')
+        if args.diagnose is not None:
+            report = diagnose(args.diagnose, args)
+            print(json.dumps(report, ensure_ascii=False))
+            return int(report['status'] == 'error')
         raw = sys.stdin.buffer.read(256 * 1024 + 1)
         if len(raw) > 256 * 1024:
             raise ValueError('event exceeds input limit')
