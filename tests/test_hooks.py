@@ -65,6 +65,20 @@ class HooksTest(unittest.TestCase):
         self.change()
         self.assertEqual(self.call('Stop', interval=1)['decision'], 'block')
 
+    def test_claude_code_prompt_id_is_the_turn_identity(self):
+        claude = {'permission_mode': 'default', 'transcript_path': '/x'}
+        def event(kind, prompt):
+            return json.dumps({'hook_event_name': kind, 'session_id': 's1', 'prompt_id': prompt,
+                               'cwd': str(self.workspace), **claude})
+        self.raw(event('UserPromptSubmit', 'p1'), interval=1)
+        self.change()
+        self.assertEqual(self.raw(event('Stop', 'p1'), interval=1)['decision'], 'block')
+
+    def test_missing_turn_identifier_fails_open(self):
+        raw = json.dumps({'hook_event_name': 'UserPromptSubmit', 'session_id': 's1', 'cwd': str(self.workspace)})
+        self.assertIsNone(self.raw(raw))
+        self.assertFalse(self.state_dir.exists())
+
     def test_unchanged_turn_does_not_increment(self):
         self.change(text='pre-existing work')
         self.call('UserPromptSubmit')

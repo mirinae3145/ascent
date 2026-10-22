@@ -199,8 +199,10 @@ def handle(event: dict, args) -> dict | None:
         return None
     if kind == 'Stop' and event.get('stop_hook_active'):
         return None
-    for field in ('session_id', 'turn_id', 'cwd'):
-        if not isinstance(event.get(field), str) or not event[field]:
+    # Codex sends turn_id; Claude Code sends prompt_id for the same per-turn identity.
+    turn = event.get('turn_id') or event.get('prompt_id')
+    for field, value in (('session_id', event.get('session_id')), ('turn_id or prompt_id', turn), ('cwd', event.get('cwd'))):
+        if not isinstance(value, str) or not value:
             raise ValueError(f'missing event field: {field}')
     root = declared_workspace(event['cwd'])
     if root is None:
@@ -212,7 +214,7 @@ def handle(event: dict, args) -> dict | None:
     path = state_root / key / 'state.json'
     current = snapshot(root, args.include)
     now = time.time()
-    sid, turn = event['session_id'], event['turn_id']
+    sid = event['session_id']
     with workspace_lock(path.with_suffix('.lock')):
         data = read_state(path, root)
         sessions = data['sessions']
