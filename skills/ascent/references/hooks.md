@@ -91,6 +91,7 @@ It includes no document contents, hashes, prompts, or transcript data.
 `status: "ok"` means local inspection succeeded, including when no saved state exists; it does not prove host registration or callback delivery.
 `status: "not-ascent"` means the directory has no recognized declaration.
 Inspection failures return `status: "error"`, the failing stage and exception type, and exit status 1; ordinary event handling retains its fail-open behavior.
+Invalid diagnostic arguments use the same error response with `stage: "options"`, including argument-parsing failures.
 `awaiting_stop` counts saved unhandled snapshots and can include interrupted sessions, so it is not a count of currently running agents.
 Supply the options actually used by the host: the diagnostic reports the requested settings and does not detect disagreement between two registrations.
 

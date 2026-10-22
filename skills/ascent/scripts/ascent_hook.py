@@ -30,7 +30,7 @@ DECLARATIONS = (
 class Parser(argparse.ArgumentParser):
     def error(self, message):
         # Codex interprets exit 2 as blocking feedback: configuration errors
-        # must pass through the same fail-open path as other observer failures.
+        # must use the selected mode's error handling instead.
         raise ValueError(message)
 
 
@@ -302,6 +302,12 @@ def handle(event: dict, args) -> dict | None:
 
 
 def main() -> int:
+    # Select error handling before typed parsing, even when a malformed option
+    # precedes --diagnose. The probe accepts a missing workspace so the full
+    # parser can report that error through the diagnostic contract too.
+    mode_parser = Parser(add_help=False)
+    mode_parser.add_argument('--diagnose', nargs='?', const=True)
+    diagnostic_mode = mode_parser.parse_known_args()[0].diagnose is not None
     parser = Parser(description=__doc__)
     parser.add_argument('--interval', type=int, default=5)
     parser.add_argument('--diagnose', type=Path, metavar='WORKSPACE', help='Inspect local observation state without reading stdin or writing state')
@@ -326,6 +332,9 @@ def main() -> int:
             print(json.dumps(output, ensure_ascii=False))
     except (OSError, ValueError, TypeError, KeyError, OverflowError) as error:
         # Never print event payloads or untrusted exception contents.
+        if diagnostic_mode:
+            print(json.dumps({'status': 'error', 'stage': 'options', 'error': type(error).__name__}))
+            return 1
         print(f'Ascent observer skipped ({type(error).__name__}).', file=sys.stderr)
     return 0
 

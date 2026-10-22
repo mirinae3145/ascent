@@ -95,6 +95,30 @@ class HooksTest(unittest.TestCase):
         self.assertFalse(self.state_dir.exists())
         self.assertNotIn('PRIVATE CONTENT', result.stdout)
 
+    def test_diagnostics_reports_invalid_options(self):
+        diagnostic_forms = [
+            ['--diagnose', str(self.workspace)],
+            ['--diagnose=' + str(self.workspace)],
+            ['--diag', str(self.workspace)],
+        ]
+        invalid_options = [
+            ['--interval', '0'], ['--include', '../outside.md'],
+            ['--interval', 'not-an-integer'], ['--unknown-option'], ['--include'],
+        ]
+        for diagnostic in diagnostic_forms:
+            for invalid in invalid_options:
+                for options in (diagnostic + invalid, invalid + diagnostic):
+                    with self.subTest(options=options):
+                        result = subprocess.run(
+                            [sys.executable, str(SCRIPT), '--state-dir', str(self.state_dir), *options],
+                            input='not an event', capture_output=True, text=True, timeout=8)
+                        self.assertEqual(result.returncode, 1, result.stderr)
+                        self.assertEqual(json.loads(result.stdout), {
+                            'status': 'error', 'stage': 'options', 'error': 'ValueError',
+                        })
+                        self.assertEqual(result.stderr, '')
+                        self.assertFalse(self.state_dir.exists())
+
     def test_diagnostics_reads_counter_without_changing_saved_state(self):
         self.call('UserPromptSubmit')
         self.change()
