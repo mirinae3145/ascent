@@ -70,6 +70,11 @@ Keep reusable project knowledge canonical, and distinguish these record roles:
 - **History** preserves dated work, validation, and observations with the conditions and limitations needed to interpret them. Keep original observations identifiable and make later corrections or follow-up findings explicit. Validation records retain the behaviors checked, results, limitations, and necessary reproduction conditions.
 - **Consequential decisions** retain what was chosen and why, with material alternatives or trade-offs, scope, constraints, and reconsideration conditions when relevant. Make the current status and any superseding decision explicit while preserving the earlier rationale.
 
+Use present-tense descriptions only when their applicable time is clear from the section, surrounding context, or stated scope.
+A dated historical section may describe conditions within that period in the present tense, but must not imply that they still hold.
+When moving or updating a passage, preserve its temporal scope.
+Clarify an ambiguous observation period rather than requiring a date on every sentence.
+
 These roles may be separate sections in one file or separate documents.
 Link their canonical locations instead of repeating detailed accounts in each one.
 Keep knowledge and necessary evidence, while allowing current-state prose to be rewritten as the current account rather than becoming an append-only changelog.
@@ -78,8 +83,18 @@ For example, when a later check overturns an earlier result, update current stat
 If a consequential decision depended on that result, mark whether it still applies or has been superseded; do not erase its original rationale.
 
 Keep confirmed findings, assumptions, proposals, and open questions distinguishable.
-Retain temporary failures, device paths, installation details, or execution history only where they affect interpretation, reproduction, or continuation; scope such observations to the device and conditions actually checked.
-Keep general target requirements in target documentation and project-specific observations in the workspace.
+Checking operational state does not by itself warrant recording it.
+Do not routinely persist readily queryable facts such as whether commits have been pushed, whether a working tree is clean, or whether a device is connected.
+Query their authoritative sources when needed.
+Retain a historical observation only when it explains a consequential decision, result, or unresolved obstacle that current state alone cannot recover; include the relevant time, scope, and evidence.
+Apply this criterion to temporary failures, device paths, installation details, execution results, and approval history as well.
+Possible usefulness to a later session alone is insufficient.
+
+When retaining machine-specific observations, identify the machine by name and state the observation's scope.
+If its identity cannot be established, mark it as unknown rather than guessing.
+Do not place machine-specific paths, installation state, or execution history in target repository code, documentation, or configuration.
+Keep necessary observations in the workspace's relevant records.
+Target repositories retain generalizable environment requirements, reproduction conditions, and compatibility constraints.
 Store maintained implementation and analysis code in the responsible versioned target; result records link to the code revision and retained inputs instead of becoming a parallel source archive.
 
 Keep records reachable from the README so another session can continue without the original conversation.
