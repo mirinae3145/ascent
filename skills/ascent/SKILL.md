@@ -57,6 +57,7 @@ A recorded proposal or unfinished plan is not evidence of an applied change.
 When a missing source or uncertain current condition could change the next action, inspect the necessary original material.
 
 Resolve each target's actual location through the workspace's links and follow the target's applicable guidance.
+Create additional checkouts and worktrees of target repositories outside the workspace directory; link to them from the workspace when needed.
 Keep target-specific commands, code, tests, reusable usage guidance, and source history in the responsible target.
 Keep project-wide objectives, cross-target reasoning, and coordination in the workspace, with links to target-owned material.
 A broken link is an unresolved location or access issue, not a reason to reconstruct the target from a summary.
