@@ -87,6 +87,20 @@ Update existing content first, adding documents only when their role warrants it
 If the records already capture the relevant knowledge accurately and coherently, finish without rewriting them or adding a maintenance report.
 Document maintenance follows the authorized task scope; read-only review does not authorize edits merely because continuity would benefit.
 
+## Temporary departures from a baseline
+
+When later work relies on an explicitly documented or agreed baseline, account for temporary departures that the agent makes or asks the user to make.
+At the time of the change, identify its purpose and when it should end; use an established restoration procedure when available.
+Before completing that work or handing it off, restore the affected conditions within the authorized scope, or request restoration and confirmation from the person who must perform it.
+If subsequent work still needs the departure, agree on its continued use and restoration point instead of silently treating it as the new baseline.
+Respect explicit exceptions to restoration and intervening user changes; do not blindly restore an earlier snapshot.
+
+Confirm only the affected conditions, using direct evidence or the responsible person's report as appropriate, and distinguish those evidence sources.
+Do not infer restoration from silence or the end of a session.
+If restoration remains unconfirmed at closeout, ask about that known departure and retain only the unresolved condition and its implications for continuation.
+Once resolved, remove it from current work records; retain history only under the recording criteria above.
+This responsibility does not require routine reapproval of an unchanged baseline or speculation about unreported external changes; recheck when a known change, relevant observation, or established procedure warrants it.
+
 ## Optional refinement trigger
 
 The workflow does not require automation.
