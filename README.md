@@ -12,10 +12,14 @@ A workspace may itself be a repository when its purpose calls for versioned reco
 
 Install [the Ascent skill](skills/ascent/SKILL.md) with your agent's skill installer, or place that directory in its supported skill location.
 The skill is self-contained and does not require AEM, a particular agent product, or a research workflow.
+
 Ask the agent to create an Ascent workspace for an objective, resume an existing workspace, or reconcile its project documents.
 The skill also applies to ordinary work started in a directory containing `.ascent.toml`, including work confined to one linked target.
-An existing workspace explicitly identified in its README remains a supplemental agent entry path; if its marker is missing, the skill points to the transition procedure.
+An existing workspace explicitly identified in its README remains a supplemental agent entry path.
+If its marker is missing, the skill points to the transition procedure.
 When replacing an existing workspace policy, follow [the integration guide](skills/ascent/references/integration.md) to preserve its entry path and environment-specific requirements.
+
+## Workspaces
 
 An existing folder becomes an Ascent workspace by adding an empty `.ascent.toml` file at its root.
 The file is the explicit workspace marker and reserves a TOML configuration location for future settings; no setting keys are interpreted yet.
