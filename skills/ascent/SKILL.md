@@ -149,7 +149,7 @@ Result records link to the code revision and retained inputs instead of becoming
 ### Reachability and maintenance scope
 
 Keep records reachable from the README so another session can continue without the original conversation.
-Update existing content first, adding documents only when their role warrants it.
+Update existing content before adding documents.
 If the records already capture the relevant knowledge accurately and coherently, finish without rewriting them or adding a maintenance report.
 Document maintenance follows the authorized task scope; read-only review does not authorize edits merely because continuity would benefit.
 
