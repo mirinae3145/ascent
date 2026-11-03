@@ -58,12 +58,24 @@ The hook observes a bounded set of documents and keeps only paths, hashes, and c
 ### Selected documents
 
 Default include patterns are `*.md`, `docs/**/*.md`, `records/**/*.md`, and `decisions/**/*.md`, relative to the workspace root.
-These defaults deliberately omit other document locations; select additional locations when needed.
+These defaults deliberately omit other document locations, so that drafts, raw data, and unrelated folders neither count as changes nor stop observation.
+List a workspace's own locations in its `.ascent.toml`, for example to include a folder that holds a root document's subdocuments:
+
+```toml
+[hook]
+include = ["*.md", "design/**/*.md"]
+```
+
 Selection follows these rules:
 
+- **Precedence**: A workspace's `hook.include` replaces the defaults and any `--include` options.
+  Without it, repeated `--include PATTERN` options replace the defaults for that registration.
+  Prefer the workspace list, because a registration applies to every workspace.
 - **Patterns**: A single `*` stays within a path segment; `**` spans zero or more directories.
-  Repeat `--include PATTERN` to replace those defaults for a particular registration.
   Patterns must be relative and cannot contain parent traversal.
+  An invalid `hook.include`, such as an empty list or a non-string entry, is a configuration error.
+- **Selection changes**: A turn whose selection differs between its two events is not counted, because the snapshots would differ without any edit.
+  This covers editing `hook.include` during a turn and registering the two events with different `--include` options.
 - **Skipped paths**: Hidden directories, `targets`, dependency directories, symbolic links, and agent instruction files (`AGENTS.md`, `CLAUDE.md`) are skipped regardless of patterns.
   The hook maintains project knowledge, not agent instruction policy.
 - **Configuration**: The `.ascent.toml` file is configuration, not a refinement document; changes to it do not advance the counter.
@@ -102,6 +114,7 @@ Merge with existing registrations rather than replacing the user's hook file.
 Use an interpreter and quoted paths appropriate to the platform; `python3` is only an example.
 Codex requires native review/trust for new command definitions; registration does not grant it.
 Change the interval and include arguments consistently on both events, then reapply the definitions and review changed commands.
+Without a workspace list, mismatched include arguments leave every turn uncounted; mismatched intervals are not detected.
 
 For AEM, the repository's `examples/aem.toml` shows optional Codex declarations using a Git source; AEM skills do not accept external folder sources.
 Bind the `ascent-python` runtime to the selected interpreter and explicitly apply the skill and both hook resources.
@@ -116,7 +129,7 @@ python3 /absolute/ascent/skills/ascent/scripts/ascent_hook.py --diagnose /absolu
 ```
 
 This mode does not read event input, create state or lock files, change counters, or request continuation.
-Its JSON reports whether the workspace marker and configuration are valid, selected document paths, and the state location.
+Its JSON reports whether the workspace marker and configuration are valid, the include patterns in effect, selected document paths, and the state location.
 It also reports the accumulated count and pending paths, session counts, and the last dispatched request.
 It includes no document contents, hashes, prompts, or transcript data.
 

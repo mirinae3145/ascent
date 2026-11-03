@@ -28,7 +28,7 @@ Identify a workspace by a regular `.ascent.toml` file directly in the selected d
 The marker follows these rules:
 
 - **Contents**: An empty file is valid; contents must be UTF-8 TOML within 2 MiB.
-  No setting keys are interpreted yet; hook options remain command-line arguments.
+  Only the optional hook's document selection, `hook.include`, is interpreted; other keys are reserved.
 - **Symbolic links**: Resolve the selected directory's symbolic links before checking, so a linked directory and its original path identify the same workspace.
   The marker file itself must not be a symbolic link or directory.
 - **No inference**: Do not search parent directories or infer marker-based identity from directory names, target links, Git, or an installation manager.

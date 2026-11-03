@@ -22,7 +22,8 @@ When replacing an existing workspace policy, follow [the integration guide](skil
 ## Workspaces
 
 An existing folder becomes an Ascent workspace by adding an empty `.ascent.toml` file at its root.
-The file is the explicit workspace marker and reserves a TOML configuration location for future settings; no setting keys are interpreted yet.
+The file is the explicit workspace marker and holds workspace settings in TOML.
+Only the optional hook's document selection is interpreted so far; other keys are reserved.
 See the skill's [workspace policy](skills/ascent/SKILL.md#establish-the-workspace) for identity, links, and configuration rules.
 
 Keep the objective, target relationships, and links to current work records reachable from the README.

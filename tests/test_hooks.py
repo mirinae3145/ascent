@@ -91,6 +91,50 @@ class HooksTest(unittest.TestCase):
         self.assertIsNone(self.call('Stop'))
         self.assertEqual(self.state()['count'], 1)
 
+    def test_workspace_include_replaces_options_and_defaults(self):
+        (self.workspace / '.ascent.toml').write_text('[hook]\ninclude = ["*.md", "design/**/*.md"]\n')
+        options = ['--include', 'docs/**/*.md']
+        self.call('UserPromptSubmit', options=options)
+        self.change('design.md')
+        self.change('design/review/notes.md')
+        self.change('docs/ignored.md')
+        self.call('Stop', options=options)
+        self.assertEqual(self.state()['pending'], ['design.md', 'design/review/notes.md'])
+        result, report = self.diagnose()
+        self.assertEqual(report['include'], ['*.md', 'design/**/*.md'])
+
+    def test_invalid_workspace_include_is_a_config_error(self):
+        for content in ['hook = 1', '[hook]\ninclude = "*.md"', '[hook]\ninclude = []',
+                        '[hook]\ninclude = ["*.md", 1]', '[hook]\ninclude = ["../outside.md"]',
+                        '[hook]\ninclude = ["/absolute.md"]']:
+            with self.subTest(content=content):
+                (self.workspace / '.ascent.toml').write_text(content)
+                result, report = self.diagnose()
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertEqual(report['stage'], 'config')
+                self.assertIsNone(self.call('UserPromptSubmit'))
+                self.assertIsNone(self.call('Stop'))
+                self.assertFalse(self.state_dir.exists())
+
+    def test_selection_change_within_a_turn_is_not_counted(self):
+        self.call('UserPromptSubmit')
+        (self.workspace / '.ascent.toml').write_text('[hook]\ninclude = ["*.md", "design/**/*.md"]\n')
+        self.change('design/notes.md')
+        self.change()
+        self.assertIsNone(self.call('Stop', interval=1))
+        self.assertEqual(self.state()['count'], 0)
+        self.assertEqual(self.state()['pending'], [])
+        self.call('UserPromptSubmit', turn='t2')
+        self.change('design/notes.md', 'later knowledge')
+        self.assertEqual(self.call('Stop', turn='t2', interval=1)['decision'], 'block')
+
+    def test_mismatched_event_options_are_not_counted(self):
+        self.call('UserPromptSubmit', options=['--include', 'a.md'])
+        self.change('a.md')
+        self.change('b.md')
+        self.assertIsNone(self.call('Stop', interval=1, options=['--include', 'b.md']))
+        self.assertEqual(self.state()['count'], 0)
+
     def test_invalid_workspace_config_fails_open_before_state_creation(self):
         for content in [b'private = [', b'\xff', b'#' + b'x' * (2 * 1024 * 1024)]:
             with self.subTest(size=len(content)):

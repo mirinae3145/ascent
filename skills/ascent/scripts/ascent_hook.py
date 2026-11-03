@@ -46,13 +46,38 @@ def workspace_root(cwd: str) -> Path | None:
     return root
 
 
-def validate_workspace_config(root: Path) -> None:
-    """Validate bounded UTF-8 TOML; no workspace setting keys are consumed yet."""
+def check_patterns(patterns: list[str]) -> None:
+    if any(not p or p.startswith('/') or '\\' in p or '..' in p.split('/') for p in patterns):
+        raise ValueError('include patterns must be relative without parent traversal')
+
+
+def workspace_includes(root: Path) -> list[str] | None:
+    """Validate bounded UTF-8 TOML and return the workspace's document selection.
+
+    Only `hook.include` is consumed; other keys are reserved and ignored so that
+    configurations written for later versions remain valid.
+    """
     with (root / WORKSPACE_FILE).open('rb') as stream:
         contents = stream.read(MAX_FILE + 1)
     if len(contents) > MAX_FILE:
         raise ValueError('workspace config exceeds size limit')
-    tomllib.loads(contents.decode('utf-8'))
+    config = tomllib.loads(contents.decode('utf-8'))
+    hook = config.get('hook', {})
+    if not isinstance(hook, dict):
+        raise ValueError('workspace hook settings must be a table')
+    if 'include' not in hook:
+        return None
+    includes = hook['include']
+    if not isinstance(includes, list) or not includes or not all(isinstance(p, str) for p in includes):
+        raise ValueError('workspace include must be a non-empty list of patterns')
+    check_patterns(includes)
+    return includes
+
+
+def selected_patterns(root: Path, args) -> list[str]:
+    # A registration is shared by every workspace, so a workspace's own list
+    # takes precedence over the command line, which takes precedence over defaults.
+    return workspace_includes(root) or args.include or list(DEFAULT_INCLUDES)
 
 
 def match_parts(parts: tuple[str, ...], pattern: tuple[str, ...]) -> bool:
@@ -172,6 +197,8 @@ def read_state(path: Path, root: Path) -> dict:
             raise ValueError('invalid session identity')
         if not isinstance(session.get('baseline'), dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in session['baseline'].items()):
             raise ValueError('invalid session baseline')
+        if 'include' in session and (not isinstance(session['include'], list) or not all(isinstance(p, str) for p in session['include'])):
+            raise ValueError('invalid session selection')
         if type(session.get('handled')) is not bool or type(session.get('seen')) not in (float, int):
             raise ValueError('invalid session metadata')
     return data
@@ -223,11 +250,11 @@ def diagnose(workspace: Path, args) -> dict:
         if root is None:
             return {'status': 'not-ascent', 'stage': 'marker'}
         report.update(workspace=str(root), stage='config')
-        validate_workspace_config(root)
-        report.update(stage='state-location')
+        includes = selected_patterns(root, args)
+        report.update(include=includes, stage='state-location')
         path = workspace_state_path(root, args.state_dir)
         report.update(state_path=str(path), stage='snapshot')
-        current = snapshot(root, args.include)
+        current = snapshot(root, includes)
         report.update(selected_paths=sorted(current), stage='state')
         exists = path.exists()
         # State is atomically replaced by event handlers. Reading it needs no
@@ -264,9 +291,9 @@ def handle(event: dict, args) -> dict | None:
     root = workspace_root(event['cwd'])
     if root is None:
         return None
-    validate_workspace_config(root)
+    includes = selected_patterns(root, args)
     path = workspace_state_path(root, args.state_dir)
-    current = snapshot(root, args.include)
+    current = snapshot(root, includes)
     now = time.time()
     sid = event['session_id']
     with workspace_lock(path.with_suffix('.lock')):
@@ -276,7 +303,7 @@ def handle(event: dict, args) -> dict | None:
         if kind == 'UserPromptSubmit':
             if session is not None and session['turn_id'] == turn:
                 return None
-            sessions[sid] = {'turn_id': turn, 'baseline': current, 'handled': False, 'seen': now}
+            sessions[sid] = {'turn_id': turn, 'baseline': current, 'include': includes, 'handled': False, 'seen': now}
             for old_sid in list(sessions):
                 if old_sid != sid and sessions[old_sid]['seen'] < now - 30 * 86400:
                     del sessions[old_sid]
@@ -288,10 +315,16 @@ def handle(event: dict, args) -> dict | None:
         if session is None or session['turn_id'] != turn or session['handled']:
             return None
         baseline = session['baseline']
+        # Snapshots taken with different selections differ without any edit,
+        # for example after editing the workspace list or registering the two
+        # events with different options. Such a turn is not counted.
+        selection_changed = session.get('include', includes) != includes
         changed = {name for name in set(baseline) | set(current) if baseline.get(name) != current.get(name)}
         session.update(handled=True, baseline={}, seen=now)
         output = None
-        if changed:
+        if selection_changed:
+            print('Ascent observer skipped a turn whose document selection changed.', file=sys.stderr)
+        elif changed:
             data['count'] += 1
             data['pending'] = sorted(set(data['pending']) | changed)
             if data['count'] >= args.interval:
@@ -313,15 +346,14 @@ def main() -> int:
     parser = Parser(description=__doc__)
     parser.add_argument('--interval', type=int, default=5)
     parser.add_argument('--diagnose', type=Path, metavar='WORKSPACE', help='Inspect local observation state without reading stdin or writing state')
-    parser.add_argument('--include', action='append', default=None, help='Workspace-relative document glob; repeat to replace defaults')
+    parser.add_argument('--include', action='append', default=None, help='Workspace-relative document glob; repeat to replace defaults unless the workspace config lists hook.include')
     parser.add_argument('--state-dir', type=Path, default=default_state_dir())
     try:
         args = parser.parse_args()
         if args.interval < 1:
             raise ValueError('interval must be positive')
-        args.include = args.include or list(DEFAULT_INCLUDES)
-        if any(not p or p.startswith('/') or '\\' in p or '..' in p.split('/') for p in args.include):
-            raise ValueError('include patterns must be relative without parent traversal')
+        if args.include:
+            check_patterns(args.include)
         if args.diagnose is not None:
             report = diagnose(args.diagnose, args)
             print(json.dumps(report, ensure_ascii=False))
