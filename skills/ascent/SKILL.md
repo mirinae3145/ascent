@@ -90,6 +90,8 @@ A broken link is an unresolved location or access issue, not a reason to reconst
 ## Maintain knowledge and continuity
 
 When authorized work produces knowledge needed later, consequential decisions, or meaningful state changes, update the relevant existing documents before concluding or changing phase.
+This workflow decides what the records hold and when they change, not how documents are divided, nested, or linked.
+When a document-structure skill or guideline is available, use it together with this workflow whenever record content is added, moved, or removed.
 
 ### Record roles
 
