@@ -48,6 +48,7 @@ Use them to confirm the transition:
 - **Marked workspace**: Start a fresh session in an existing marked workspace and give it an ordinary task involving one linked target.
   No global Ascent routing rule should supply the entry path.
   Check that it reads the skill and relevant workspace records before target work and follows target guidance.
+  Check that it reassesses applicable guidance, including what global instructions direct, after recovering the context and again when the work changes kind.
   Check that it keeps implementation and project coordination in their respective owners.
 - **README-declared workspace**: Check an existing README-declared workspace without the marker.
   The skill should load, point to the transition procedure, and use the existing context while the hook remains inactive.

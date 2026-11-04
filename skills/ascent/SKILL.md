@@ -71,7 +71,7 @@ When migrating an existing workspace policy to this skill, read [the integration
 
 ## Enter or resume work
 
-Before acting, recover the project context from the workspace records and locate each target through its link.
+Before acting, recover the project context from the workspace records, reassess the guidance the next work needs, and locate each target through its link.
 
 ### Recover the context
 
@@ -79,6 +79,16 @@ Read the README and follow the relevant current knowledge and work records befor
 Recover confirmed findings, applicable decisions, open questions, next actions, and source locations from those records rather than relying on an earlier chat.
 A recorded proposal or unfinished plan is not evidence of an applied change.
 When a missing source or uncertain current condition could change the next action, inspect the necessary original material.
+
+### Reassess applicable guidance
+
+The recovered context shows the workspace's purpose and the kind of work that resumes next.
+That work may be analysis, record writing, source citation, or changes to a target.
+Before acting on it, reassess which instructions and skills apply to that work, including what global instructions direct for it.
+Reassess again whenever later work takes on a new kind of action.
+
+This workflow marks when to reassess but does not decide which guidance applies.
+Neither this workflow nor the workspace records replace global instructions, the guidance they direct, or a target's own guidance.
 
 ### Work with targets
 
