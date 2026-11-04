@@ -58,6 +58,7 @@ Use the existing layout.
 A common arrangement has a README and `targets/` links to independent work targets.
 Project records stay in README sections until separate documents are useful.
 Do not create empty folders or impose a fixed record schema.
+Declare in the README any folder that preserves material as received, such as user-provided originals, so that later edits leave its contents unchanged.
 
 Create new workspaces as ordinary directories by default; Git initialization is optional.
 Project coordination records generally have less need for version control than code, and this default favors fast iteration with an agent.
