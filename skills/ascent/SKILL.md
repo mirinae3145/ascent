@@ -133,6 +133,9 @@ Query their authoritative sources when needed.
 Retain a historical observation only when it explains a consequential decision, result, or unresolved obstacle that current state alone cannot recover.
 Include the relevant time, scope, and evidence.
 Apply this criterion to temporary failures, device paths, installation details, execution results, and approval history as well.
+
+Keep a path, command, or artifact location that a retained record needs as evidence or for reproduction.
+One that no retained record refers to is not worth keeping on its own.
 Possible usefulness to a later session alone is insufficient.
 
 ### Machine-specific observations and code
