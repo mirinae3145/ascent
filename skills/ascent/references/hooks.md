@@ -133,9 +133,7 @@ Codex requires native review/trust for new command definitions; registration doe
 Change the interval and include arguments consistently on both events, then reapply the definitions and review changed commands.
 Without a workspace list, mismatched include arguments leave every turn uncounted; mismatched intervals are not detected.
 
-For AEM, the repository's `examples/aem.toml` shows optional Codex declarations using a Git source; AEM skills do not accept external folder sources.
-Bind the `ascent-python` runtime to the selected interpreter and explicitly apply the skill and both hook resources.
-AEM owns installation instead of the skill editing native files itself.
+When an installation manager registers hooks, declare both events through it and follow its conventions instead of editing the host configuration directly.
 
 ## Inspect local observation state
 
