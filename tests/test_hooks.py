@@ -341,6 +341,8 @@ class HooksTest(unittest.TestCase):
                 self.assertIn('part-1.md', output['reason'])
                 self.assertIn('part-5.md', output['reason'])
                 self.assertNotIn('private content', output['reason'])
+                self.assertIn('maintaining knowledge and continuity', output['reason'])
+                self.assertIn('reassess which instructions and skills apply', output['reason'])
         state = self.state()
         self.assertEqual(state['count'], 0)
         self.assertEqual(state['pending'], [])

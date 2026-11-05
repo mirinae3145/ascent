@@ -48,8 +48,10 @@ Each turn is observed as follows:
 
 A workspace's counter and pending paths are shared across sessions under an OS file lock.
 The last dispatched request remains identifiable in state; dispatch does not prove the model performed refinement.
+
 No separate model is invoked, and the script never edits project documents.
 The continuation preserves the original task's scope and permissions and does not require a wrap-up or a separate refinement report.
+It points to the skill's guidance on maintaining knowledge and continuity and asks for a reassessment of applicable guidance first, since refinement is record work.
 
 ## Selected documents and state
 

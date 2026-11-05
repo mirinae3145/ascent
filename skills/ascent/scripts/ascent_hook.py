@@ -220,6 +220,8 @@ def write_state(path: Path, data: dict):
 def refinement_request(root: Path, paths: list[str], state_path: Path) -> dict:
     reason = (
         'Run one focused Ascent document-refinement pass within the existing task and permissions. '
+        'Follow the Ascent skill\'s guidance on maintaining knowledge and continuity, and first reassess which '
+        'instructions and skills apply to this record work. '
         'Review the accumulated changed project documents, keeping current state, history, and consequential decisions '
         'distinct in their canonical locations and connected by links. Preserve original evidence and necessary '
         'validation detail. Apply only useful, authorized changes; if no improvement is needed, finish without edits. '
