@@ -85,6 +85,23 @@ Selection follows these rules:
 Document edits are an observation signal, not proof of which actor made them or whether useful knowledge exists.
 Read-only research with no document edits does not advance the counter.
 
+### Choosing a workspace list
+
+A workspace list names the project records whose changes should prompt refinement.
+This is a narrower question than which Markdown files the workspace holds or which ones a structure check covers.
+Choose the list as follows:
+
+- **Records**: Include the locations of the current state, history, decisions, and knowledge that the workspace maintains.
+- **Preserved material**: Leave out folders that the README declares as preserved as received, and archived records kept as they were.
+  A refinement request would invite rewriting them.
+  Name by its path an index that the workspace maintains inside such a folder.
+- **Other material**: Leave out deliverables, test inputs and outputs, and other documents that are not project records, even when they are Markdown.
+- **Structure-check exclusions**: A document left out of a structure check is usually outside the list as well.
+  The converse does not hold, since archived records can follow a document model yet stay out of refinement.
+- **Explicit patterns**: The list has no exclusion syntax, so it names the included locations rather than the excluded ones.
+- **Keeping it current**: When work adds a record location to a workspace that lists `hook.include`, add it to the list in the same change.
+  Documents in an unlisted location are not observed.
+
 ### Saved state
 
 Only path names and SHA-256 hashes are retained, together with counters, turn/session identifiers, and request metadata.
