@@ -47,8 +47,11 @@ Each turn is observed as follows:
 1. When the count reaches `--interval N` (default `5`), return one focused refinement request for the accumulated paths and reset the count.
 
 A workspace's counter and pending paths are shared across sessions under an OS file lock.
-The last dispatched request remains identifiable in state; dispatch does not prove the model performed refinement.
+The request treats every accumulated path as in scope, whichever session changed it, because refinement serves the workspace's records.
+It lists removed documents separately, so that only the links and summaries still referring to them are checked.
+Paths that are no longer selected are omitted.
 
+The last dispatched request remains identifiable in state; dispatch does not prove the model performed refinement.
 No separate model is invoked, and the script never edits project documents.
 The continuation preserves the original task's scope and permissions and does not require a wrap-up or a separate refinement report.
 It points to the skill's guidance on maintaining knowledge and continuity and asks for a reassessment of applicable guidance first, since refinement is record work.

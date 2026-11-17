@@ -445,6 +445,35 @@ class HooksTest(unittest.TestCase):
         self.call('Stop')
         self.assertEqual(self.state()['pending'], ['knowledge.md'])
 
+    def test_request_includes_other_sessions_and_separates_removed_paths(self):
+        gone = self.change('gone.md')
+        self.change('dropped/old.md')
+        self.call('UserPromptSubmit', session='other')
+        self.change('other.md')
+        gone.unlink()
+        self.assertIsNone(self.call('Stop', session='other', interval=2))
+        self.call('UserPromptSubmit', session='mine')
+        self.change('mine.md')
+        output = self.call('Stop', session='mine', interval=2)
+        reason = output['reason']
+        self.assertIn('in this session or others', reason)
+        self.assertIn('Changed: ["mine.md", "other.md"]', reason)
+        self.assertIn('Removed: ["gone.md"]', reason)
+        self.assertEqual(self.state()['last_request']['removed'], ['gone.md'])
+
+    def test_paths_no_longer_selected_are_not_requested(self):
+        (self.workspace / '.ascent.toml').write_text('[hook]\ninclude = ["*.md", "notes/*.md"]\n', encoding='utf-8')
+        self.call('UserPromptSubmit')
+        self.change('notes/a.md')
+        self.assertIsNone(self.call('Stop', interval=2))
+        (self.workspace / '.ascent.toml').write_text('[hook]\ninclude = ["*.md"]\n', encoding='utf-8')
+        self.call('UserPromptSubmit', 't2')
+        self.change('kept.md')
+        output = self.call('Stop', 't2', interval=2)
+        self.assertIn('Changed: ["kept.md"]', output['reason'])
+        self.assertIn('Removed: []', output['reason'])
+        self.assertNotIn('notes/a.md', output['reason'])
+
     def test_plan_mode_and_unsupported_events_do_not_create_state(self):
         self.call('UserPromptSubmit', permission_mode='plan')
         self.call('Stop', permission_mode='plan')
