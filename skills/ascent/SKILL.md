@@ -85,7 +85,8 @@ When a missing source or uncertain current condition could change the next actio
 
 The recovered context shows the workspace's purpose and the kind of work that resumes next.
 That work may be analysis, record writing, source citation, or changes to a target.
-Before acting on it, reassess which instructions and skills apply to that work, including what global instructions direct for it.
+Once the recovered context shows that work, reassess which instructions and skills apply to it, including what global instructions direct for it.
+Read them then, even when the current task only organizes records or plans, so they shape that organization and planning.
 Reassess again whenever later work takes on a new kind of action or moves to another target.
 
 This workflow marks when to reassess but does not decide which guidance applies.
