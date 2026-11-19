@@ -54,7 +54,9 @@ Paths that are no longer selected are omitted.
 The last dispatched request remains identifiable in state; dispatch does not prove the model performed refinement.
 No separate model is invoked, and the script never edits project documents.
 The continuation preserves the original task's scope and permissions and does not require a wrap-up or a separate refinement report.
-It points to the skill's guidance on maintaining knowledge and continuity and asks for a reassessment of applicable guidance first, since refinement is record work.
+
+The request points to the skill's guidance on maintaining knowledge and continuity and first asks to reassess applicable guidance, since refinement is record work.
+It also asks the pass to find content that this guidance says not to record, such as readily queryable status, and replace or remove it.
 
 ## Selected documents and state
 
