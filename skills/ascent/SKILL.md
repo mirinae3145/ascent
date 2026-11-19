@@ -142,6 +142,7 @@ Keep confirmed findings, assumptions, proposals, and open questions distinguisha
 Checking operational state does not by itself warrant recording it.
 Do not routinely persist readily queryable facts, such as whether commits have been pushed, a working tree is clean, or a device is connected.
 Query their authoritative sources when needed.
+When such state matters to the user, such as an unpushed commit, report it in the response and record only the commit and its validation.
 
 Retain a historical observation only when it explains a consequential decision, result, or unresolved obstacle that current state alone cannot recover.
 Include the relevant time, scope, and evidence.
