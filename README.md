@@ -49,3 +49,10 @@ An [AEM catalog fragment](examples/aem.toml) is provided as an optional integrat
 See [CONTRIBUTING.md](CONTRIBUTING.md) for checks and implementation boundaries.
 The implementation uses Python 3.11 or later and the standard library.
 This repository was created with AI assistance; review the skill and hook before using them.
+
+## License
+
+The hook script and its tests are licensed under the MIT License.
+The documentation, including the skill's instructions and reference documents, is licensed under CC BY 4.0.
+The repository configuration and the AEM catalog example are dedicated to the public domain under CC0 1.0.
+[`REUSE.toml`](REUSE.toml) assigns each path its license and copyright holders, following the [REUSE](https://reuse.software/) specification, and the license texts are in [`LICENSES/`](LICENSES/).

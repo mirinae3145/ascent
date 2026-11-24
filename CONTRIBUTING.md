@@ -19,3 +19,8 @@ Also run the available skill validator when changing the skill.
 Test both supported event payloads and failure behavior; non-Ascent, malformed input, unsupported events, and read-only plan mode must not produce continuation requests.
 Run native Windows checks when available before claiming Windows execution was verified.
 Keep generated indexes, caches, runtime state, and installation-specific records out of tracked source.
+
+Keep every tracked file covered by an annotation in `REUSE.toml`.
+Scripts and tests are MIT, documentation is CC BY 4.0, and repository configuration and examples are CC0.
+Place a new file under a covered path, or add it to the matching annotation.
+Running `uvx reuse@6.3.0 lint` from the [REUSE tool](https://reuse.software/) confirms that every file is covered.

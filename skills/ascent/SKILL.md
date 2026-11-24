@@ -8,6 +8,7 @@ description: >-
   as an Ascent workspace; guide migration if the marker is missing. Explicit
   workspace creation or migration requests apply before a marker exists.
   Mentions in documentation or examples alone do not trigger this skill.
+license: CC-BY-4.0 for the instructions and references; MIT for the scripts; copyright 2026 Taeha Shin and Yun Ji
 ---
 
 # Ascent
