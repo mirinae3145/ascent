@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager
+from dataclasses import dataclass
 import fnmatch
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import stat
 import sys
 import tempfile
@@ -46,38 +47,51 @@ def workspace_root(cwd: str) -> Path | None:
     return root
 
 
-def check_patterns(patterns: list[str]) -> None:
-    if any(not p or p.startswith('/') or '\\' in p or '..' in p.split('/') for p in patterns):
-        raise ValueError('include patterns must be relative without parent traversal')
+def pattern_list(value, key: str, *, allow_empty: bool = False) -> list[str]:
+    if not isinstance(value, list) or (not value and not allow_empty):
+        raise ValueError(f'{key} must be a list of workspace-relative patterns')
+    for pattern in value:
+        if (not isinstance(pattern, str) or not pattern or PureWindowsPath(pattern).drive
+                or pattern.startswith('/') or '\\' in pattern or '..' in pattern.split('/')):
+            raise ValueError(f'{key} contains an invalid workspace-relative pattern')
+    return value
 
 
-def workspace_includes(root: Path) -> list[str] | None:
-    """Validate bounded UTF-8 TOML and return the workspace's document selection.
-
-    Only `hook.include` is consumed; other keys are reserved and ignored so that
-    configurations written for later versions remain valid.
-    """
+def read_config(root: Path) -> dict:
     with (root / WORKSPACE_FILE).open('rb') as stream:
         contents = stream.read(MAX_FILE + 1)
     if len(contents) > MAX_FILE:
         raise ValueError('workspace config exceeds size limit')
-    config = tomllib.loads(contents.decode('utf-8'))
-    hook = config.get('hook', {})
+    return tomllib.loads(contents.decode('utf-8'))
+
+
+@dataclass
+class Selection:
+    include: list[str]
+    exclude: list[str]
+
+    def fields(self) -> dict:
+        return {'include': self.include, 'exclude': self.exclude}
+
+    def unchanged(self, entry: dict) -> bool:
+        # Older snapshots have no exclusions.
+        return entry.get('include', self.include) == self.include and entry.get('exclude', []) == self.exclude
+
+    def selects(self, parts: tuple[str, ...]) -> bool:
+        return matches(parts, self.include) and not matches(parts, self.exclude)
+
+
+def selected_patterns(root: Path, args) -> Selection:
+    hook = read_config(root).get('hook', {})
     if not isinstance(hook, dict):
         raise ValueError('workspace hook settings must be a table')
-    if 'include' not in hook:
-        return None
-    includes = hook['include']
-    if not isinstance(includes, list) or not includes or not all(isinstance(p, str) for p in includes):
-        raise ValueError('workspace include must be a non-empty list of patterns')
-    check_patterns(includes)
-    return includes
+    includes = hook.get('include', args.include or list(DEFAULT_INCLUDES))
+    return Selection(pattern_list(includes, 'hook.include'),
+                     pattern_list(hook.get('exclude', []), 'hook.exclude', allow_empty=True))
 
 
-def selected_patterns(root: Path, args) -> list[str]:
-    # A registration is shared by every workspace, so a workspace's own list
-    # takes precedence over the command line, which takes precedence over defaults.
-    return workspace_includes(root) or args.include or list(DEFAULT_INCLUDES)
+def matches(parts: tuple[str, ...], patterns: list[str]) -> bool:
+    return any(match_parts(parts, tuple(pattern.split('/'))) for pattern in patterns)
 
 
 def match_parts(parts: tuple[str, ...], pattern: tuple[str, ...]) -> bool:
@@ -99,8 +113,10 @@ def may_contain_match(parts: tuple[str, ...], pattern: tuple[str, ...]) -> bool:
     return fnmatch.fnmatchcase(parts[0], pattern[0]) and may_contain_match(parts[1:], pattern[1:])
 
 
-def snapshot(root: Path, patterns: list[str]) -> dict[str, str]:
-    parsed = [tuple(p.split('/')) for p in patterns]
+def snapshot(root: Path, selection: Selection) -> dict[str, str]:
+    parsed = [tuple(p.split('/')) for p in selection.include]
+    # A trailing ** excludes every file under a matching directory.
+    subtrees = [tuple(p.split('/')) for p in selection.exclude if p == '**' or p.endswith('/**')]
     result = {}
     total = 0
     def directory_error(error):
@@ -113,6 +129,7 @@ def snapshot(root: Path, patterns: list[str]) -> dict[str, str]:
         dirs[:] = sorted(
             d for d in dirs
             if not d.startswith('.') and d not in SKIP_DIRS and not (parent / d).is_symlink()
+            and not any(match_parts((parent / d).relative_to(root).parts, p) for p in subtrees)
             and any(may_contain_match((parent / d).relative_to(root).parts, p) for p in parsed)
         )
         for name in sorted(files):
@@ -120,7 +137,7 @@ def snapshot(root: Path, patterns: list[str]) -> dict[str, str]:
             if name in SKIP_FILES or path.suffix.lower() != '.md' or path.is_symlink():
                 continue
             relative = path.relative_to(root)
-            if not any(match_parts(relative.parts, p) for p in parsed):
+            if not selection.selects(relative.parts):
                 continue
             info = path.lstat()
             if not stat.S_ISREG(info.st_mode):
@@ -181,8 +198,9 @@ def workspace_lock(path: Path):
 def check_snapshot_entry(entry, kind: str) -> None:
     if not isinstance(entry.get('baseline'), dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in entry['baseline'].items()):
         raise ValueError(f'invalid {kind} baseline')
-    if 'include' in entry and (not isinstance(entry['include'], list) or not all(isinstance(p, str) for p in entry['include'])):
-        raise ValueError(f'invalid {kind} selection')
+    for key in ('include', 'exclude'):
+        if key in entry and (not isinstance(entry[key], list) or not all(isinstance(p, str) for p in entry[key])):
+            raise ValueError(f'invalid {kind} selection')
     if type(entry.get('seen')) not in (float, int):
         raise ValueError(f'invalid {kind} metadata')
 
@@ -273,11 +291,11 @@ def diagnose(workspace: Path, args) -> dict:
         if root is None:
             return {'status': 'not-ascent', 'stage': 'marker'}
         report.update(workspace=str(root), stage='config')
-        includes = selected_patterns(root, args)
-        report.update(include=includes, stage='state-location')
+        selection = selected_patterns(root, args)
+        report.update(**selection.fields(), stage='state-location')
         path = workspace_state_path(root, args.state_dir)
         report.update(state_path=str(path), stage='snapshot')
-        current = snapshot(root, includes)
+        current = snapshot(root, selection)
         report.update(selected_paths=sorted(current), stage='state')
         exists = path.exists()
         # State is atomically replaced by event handlers. Reading it needs no
@@ -314,7 +332,7 @@ def changed_paths(baseline: dict[str, str], current: dict[str, str]) -> set[str]
 
 
 def observe_subagent(kind: str, data: dict, sid: str, agent_id: str,
-                     current: dict[str, str], includes: list[str], now: float) -> bool:
+                     current: dict[str, str], selection: Selection, now: float) -> bool:
     """Compare a subagent's documents between its start and stop; return whether state changed.
 
     A subagent emits no turn events of its own, and a background subagent can
@@ -328,13 +346,13 @@ def observe_subagent(kind: str, data: dict, sid: str, agent_id: str,
     if kind == 'SubagentStart':
         if key in agents:
             return False
-        agents[key] = {'session_id': sid, 'baseline': current, 'include': includes, 'seen': now}
+        agents[key] = {'session_id': sid, 'baseline': current, **selection.fields(), 'seen': now}
         prune(agents, key, now)
         return True
     agent = agents.pop(key, None)
     if agent is None:
         return False
-    if agent.get('include', includes) != includes:
+    if not selection.unchanged(agent):
         print('Ascent observer skipped a subagent whose document selection changed.', file=sys.stderr)
         return True
     changed = changed_paths(agent['baseline'], current)
@@ -357,7 +375,7 @@ def observe_subagent(kind: str, data: dict, sid: str, agent_id: str,
 
 
 def settle_subagents(data: dict, sid: str, turn_start: float, baseline: dict[str, str],
-                     current: dict[str, str], includes: list[str], now: float) -> set[str]:
+                     current: dict[str, str], selection: Selection, now: float) -> set[str]:
     """At a counted parent Stop, move the session's running subagents past it.
 
     Return their edits made before the turn's baseline, which the turn counts,
@@ -366,7 +384,7 @@ def settle_subagents(data: dict, sid: str, turn_start: float, baseline: dict[str
     """
     earlier = set()
     for agent in data['agents'].values():
-        if agent['session_id'] != sid or agent.get('include', includes) != includes:
+        if agent['session_id'] != sid or not selection.unchanged(agent):
             continue
         if agent['seen'] < turn_start:
             earlier |= changed_paths(agent['baseline'], baseline)
@@ -395,15 +413,15 @@ def handle(event: dict, args) -> dict | None:
     root = workspace_root(event['cwd'])
     if root is None:
         return None
-    includes = selected_patterns(root, args)
+    selection = selected_patterns(root, args)
     path = workspace_state_path(root, args.state_dir)
-    current = snapshot(root, includes)
+    current = snapshot(root, selection)
     now = time.time()
     sid = event['session_id']
     with workspace_lock(path.with_suffix('.lock')):
         data = read_state(path, root)
         if kind.startswith('Subagent'):
-            if observe_subagent(kind, data, sid, identity, current, includes, now):
+            if observe_subagent(kind, data, sid, identity, current, selection, now):
                 write_state(path, data)
             return None
         turn = identity
@@ -415,7 +433,7 @@ def handle(event: dict, args) -> dict | None:
             # Paths that a subagent handed to a turn that never reached Stop,
             # such as an interrupted one, move on to the new turn.
             carried = session.get('carried', []) if session is not None and not session['handled'] else []
-            sessions[sid] = {'turn_id': turn, 'baseline': current, 'include': includes, 'handled': False, 'seen': now}
+            sessions[sid] = {'turn_id': turn, 'baseline': current, **selection.fields(), 'handled': False, 'seen': now}
             if carried:
                 sessions[sid]['carried'] = carried
             prune(sessions, sid, now)
@@ -427,7 +445,7 @@ def handle(event: dict, args) -> dict | None:
         # Snapshots taken with different selections differ without any edit,
         # for example after editing the workspace list or registering the two
         # events with different options. Such a turn's own changes are not counted.
-        selection_changed = session.get('include', includes) != includes
+        selection_changed = not selection.unchanged(session)
         # Subagents compared consistent selections of their own, so the paths
         # they handed to this turn count even when the turn's own do not.
         carried = set(session.pop('carried', []))
@@ -441,7 +459,7 @@ def handle(event: dict, args) -> dict | None:
                 data['pending'] = sorted(set(data['pending']) | carried)
         else:
             changed = (changed_paths(baseline, current) | carried
-                       | settle_subagents(data, sid, turn_start, baseline, current, includes, now))
+                       | settle_subagents(data, sid, turn_start, baseline, current, selection, now))
             if changed:
                 data['count'] += 1
                 data['pending'] = sorted(set(data['pending']) | changed)
@@ -453,7 +471,8 @@ def handle(event: dict, args) -> dict | None:
                 # removed, which leaves links to check, or is no longer selected,
                 # which leaves nothing for this workspace's records to refine.
                 paths = [p for p in data['pending'] if p in current]
-                removed = [p for p in data['pending'] if p not in current and not (root / p).exists()]
+                removed = [p for p in data['pending'] if p not in current
+                           and selection.selects(tuple(p.split('/'))) and not (root / p).exists()]
                 data['last_request'] = {'paths': paths, 'removed': removed, 'session_id': sid, 'turn_id': turn,
                                         'time': now, 'changed_turns': data['count']}
                 data.update(count=0, pending=[])
@@ -480,7 +499,7 @@ def main() -> int:
         if args.interval < 1:
             raise ValueError('interval must be positive')
         if args.include:
-            check_patterns(args.include)
+            pattern_list(args.include, '--include')
         if args.diagnose is not None:
             report = diagnose(args.diagnose, args)
             print(json.dumps(report, ensure_ascii=False))

@@ -103,6 +103,66 @@ class HooksTest(unittest.TestCase):
         result, report = self.diagnose()
         self.assertEqual(report['include'], ['*.md', 'design/**/*.md'])
 
+    def test_exclusions_use_include_globs_and_apply_before_size_limits(self):
+        marker = self.workspace / '.ascent.toml'
+        marker.write_text('[hook]\nexclude = ["records/**/facts.md", "records/**/recovered_*.local.md"]\n')
+        self.change('records/facts.md', 'x' * (2 * 1024 * 1024 + 1))
+        self.call('UserPromptSubmit')
+        self.change('records/nested/facts.md')
+        self.change('records/recovered_old.local.md')
+        self.assertIsNone(self.call('Stop', interval=1))
+        self.assertEqual(self.state()['count'], 0)
+        self.call('SubagentStart', agent_id='writer')
+        self.change('records/nested/recovered_1.local.md')
+        self.change('records/nested/note.md')
+        self.call('SubagentStop', agent_id='writer')
+        self.call('UserPromptSubmit', turn='two', session='next')
+        self.assertEqual(self.call('Stop', turn='two', session='next', interval=1)['decision'], 'block')
+        self.assertEqual(self.state()['last_request']['paths'], ['records/nested/note.md'])
+        _, report = self.diagnose()
+        self.assertEqual(report['exclude'], ['records/**/facts.md', 'records/**/recovered_*.local.md'])
+        self.assertEqual(report['selected_paths'], ['README.md', 'records/nested/note.md'])
+
+    def test_exclude_change_invalidates_turn_and_subagent_snapshots(self):
+        self.change('facts.md')
+        self.call('UserPromptSubmit')
+        self.call('SubagentStart', agent_id='writer')
+        (self.workspace / '.ascent.toml').write_text('[hook]\nexclude = ["facts.md"]')
+        self.change('note.md', 'changed during the selection transition')
+        self.call('SubagentStop', agent_id='writer')
+        self.assertIsNone(self.call('Stop', interval=1))
+        self.assertEqual(self.state()['count'], 0)
+
+    def test_new_exclusion_filters_previously_pending_deleted_path(self):
+        self.call('UserPromptSubmit')
+        generated = self.change('facts.md')
+        self.call('Stop')
+        (self.workspace / '.ascent.toml').write_text('[hook]\nexclude = ["facts.md"]')
+        generated.unlink()
+        self.call('UserPromptSubmit', turn='two')
+        self.change('note.md')
+        self.call('Stop', turn='two', interval=2)
+        self.assertEqual(self.state()['last_request']['paths'], ['note.md'])
+        self.assertEqual(self.state()['last_request']['removed'], [])
+
+    def test_old_snapshot_and_explicit_empty_exclude_are_compatible(self):
+        self.call('UserPromptSubmit')
+        state_file = next(self.state_dir.glob('*/state.json'))
+        state = self.state()
+        del state['sessions']['s1']['exclude']
+        state_file.write_text(json.dumps(state), encoding='utf-8')
+        (self.workspace / '.ascent.toml').write_text('[hook]\nexclude = []')
+        self.change()
+        self.assertEqual(self.call('Stop', interval=1)['decision'], 'block')
+
+    def test_invalid_exclude_fails_open_without_state(self):
+        for value in ('"*.md"', '[1]', '["../records"]', '["C:/records/**"]'):
+            with self.subTest(value=value):
+                (self.workspace / '.ascent.toml').write_text('[hook]\nexclude = ' + value)
+                self.assertEqual(self.diagnose()[1]['stage'], 'config')
+                self.assertIsNone(self.call('UserPromptSubmit'))
+                self.assertFalse(self.state_dir.exists())
+
     def test_invalid_workspace_include_is_a_config_error(self):
         for content in ['hook = 1', '[hook]\ninclude = "*.md"', '[hook]\ninclude = []',
                         '[hook]\ninclude = ["*.md", 1]', '[hook]\ninclude = ["../outside.md"]',

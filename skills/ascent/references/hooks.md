@@ -95,6 +95,7 @@ List a workspace's own locations in its `.ascent.toml`, for example to include a
 ```toml
 [hook]
 include = ["*.md", "design/**/*.md"]
+exclude = ["design/**/facts.md", "design/**/recovered_*.local.md"]
 ```
 
 Selection follows these rules:
@@ -104,9 +105,13 @@ Selection follows these rules:
   Prefer the workspace list, because a registration applies to every workspace.
 - **Patterns**: A single `*` stays within a path segment; `**` spans zero or more directories.
   Patterns must be relative and cannot contain parent traversal.
-  An invalid `hook.include`, such as an empty list or a non-string entry, is a configuration error.
+  Both lists take string patterns with the same syntax.
+  An empty include list is invalid.
+- **Exclusions**: `hook.exclude` subtracts matching paths from the effective include list before reading or hashing files.
+  Omitting it or setting it to `[]` keeps the full include selection.
+  Requests also filter previously queued paths, including deleted files, against the current selection.
 - **Selection changes**: A turn or subagent run whose selection differs between its two events is not counted, because the snapshots would differ without any edit.
-  This covers editing `hook.include` during a turn and registering the events with different `--include` options.
+  This covers editing either marker list during a turn and registering the events with different `--include` options.
 - **Skipped paths**: Hidden directories, `targets`, dependency directories, symbolic links, and agent instruction files (`AGENTS.md`, `CLAUDE.md`) are skipped regardless of patterns.
   The hook maintains project knowledge, not agent instruction policy.
 - **Configuration**: The `.ascent.toml` file is configuration, not a refinement document; changes to it do not advance the counter.
@@ -129,7 +134,7 @@ Choose the list as follows:
 - **Other material**: Leave out deliverables, test inputs and outputs, and other documents that are not project records, even when they are Markdown.
 - **Structure-check exclusions**: A document left out of a structure check is usually outside the list as well.
   The converse does not hold, since archived records can follow a document model yet stay out of refinement.
-- **Explicit patterns**: The list has no exclusion syntax, so it names the included locations rather than the excluded ones.
+- **Generated neighbors**: When authored records share a folder with generated Markdown, include the record location and exclude the generated names.
 - **Keeping it current**: When work adds a record location to a workspace that lists `hook.include`, add it to the list in the same change.
   Documents in an unlisted location are not observed.
 
@@ -141,7 +146,8 @@ State is stored and limited as follows:
 
 - **Location**: State defaults to `$XDG_STATE_HOME/ascent` or `~/.local/state/ascent` on POSIX, and `%LOCALAPPDATA%/Ascent/state` on Windows.
   `--state-dir PATH` overrides it and must remain outside the workspace.
-- **Separation**: Workspaces have separate state files keyed by their canonical paths.
+- **Separation**: Each workspace worktree has its own state keyed by its canonical directory.
+  Sessions reusing that directory share its pending paths.
 - **Pruning**: Session and subagent snapshots older than 30 days and excess inactive entries are pruned; the workspace counter and pending set persist.
 - **Size limits**: The observer refuses oversized snapshots (2 MiB per file, 16 MiB total, 2,000 selected files) rather than comparing a partial snapshot.
 
@@ -180,7 +186,7 @@ python3 /absolute/ascent/skills/ascent/scripts/ascent_hook.py --diagnose /absolu
 ```
 
 This mode does not read event input, create state or lock files, change counters, or request continuation.
-Its JSON reports whether the workspace marker and configuration are valid, the include patterns in effect, selected document paths, and the state location.
+Its JSON reports whether the workspace marker and configuration are valid, the include and exclude patterns in effect, selected document paths, and the state location.
 It also reports the accumulated count and pending paths, session counts, and the last dispatched request.
 It includes no document contents, hashes, prompts, or transcript data.
 

@@ -23,13 +23,18 @@ When replacing an existing workspace policy, follow [the integration guide](skil
 
 An existing folder becomes an Ascent workspace by adding an empty `.ascent.toml` file at its root.
 The file is the explicit workspace marker and holds workspace settings in TOML.
-Only the optional hook's document selection is interpreted so far; other keys are reserved.
+The optional publisher and refinement hook read separate settings from the marker.
 See the skill's [workspace policy](skills/ascent/SKILL.md#establish-the-workspace) for identity, links, and configuration rules.
 
 Keep the objective, target relationships, and links to current work records reachable from the README.
 Marker-based identification does not depend on its wording or formatting.
 Use the existing layout; a small workspace can keep current state, history, and consequential decisions in separate sections of one file.
 The skill defines their responsibilities and how they connect without requiring a fixed folder template.
+
+## Publish Git workspace records
+
+Teams can give concurrent writers separate worktrees and configure which committed records may be published directly.
+The [Git publishing guide](skills/ascent/references/publishing.md) covers the marker settings, the outgoing commit and path preview, and the check shared by CI and the fast-forward push.
 
 ## Optional document refinement hook
 
@@ -52,7 +57,7 @@ This repository was created with AI assistance; review the skill and hook before
 
 ## License
 
-The hook script and its tests are licensed under the MIT License.
+The scripts and their tests are licensed under the MIT License.
 The documentation, including the skill's instructions and reference documents, is licensed under CC BY 4.0.
 The repository configuration and the AEM catalog example are dedicated to the public domain under CC0 1.0.
 [`REUSE.toml`](REUSE.toml) assigns each path its license and copyright holders, following the [REUSE](https://reuse.software/) specification, and the license texts are in [`LICENSES/`](LICENSES/).
