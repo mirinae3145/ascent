@@ -28,3 +28,23 @@ runtime = "ascent-python"
 script = "skills/ascent/scripts/ascent_hook.py"
 args = ["--interval", "5"]
 timeout = 10
+
+[hooks.ascent-subagent-snapshot]
+source = "ascent"
+
+[hooks.ascent-subagent-snapshot.agents.codex]
+event = "SubagentStart"
+runtime = "ascent-python"
+script = "skills/ascent/scripts/ascent_hook.py"
+args = ["--interval", "5"]
+timeout = 10
+
+[hooks.ascent-subagent-compare]
+source = "ascent"
+
+[hooks.ascent-subagent-compare.agents.codex]
+event = "SubagentStop"
+runtime = "ascent-python"
+script = "skills/ascent/scripts/ascent_hook.py"
+args = ["--interval", "5"]
+timeout = 10

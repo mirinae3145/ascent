@@ -584,6 +584,141 @@ class HooksTest(unittest.TestCase):
         self.assertEqual(self.state()['count'],1)
         self.assertEqual(len(list(self.state_dir.glob('*/state.json'))),1)
 
+    def test_background_subagent_edit_after_parent_stop_is_counted(self):
+        self.call('UserPromptSubmit', interval=1)
+        self.assertIsNone(self.call('SubagentStart', 'child', agent_id='a1', agent_type='default', interval=1))
+        self.assertIsNone(self.call('Stop', interval=1))
+        self.change('late.md')
+        self.assertIsNone(self.call('SubagentStop', 'child', agent_id='a1', agent_type='default', interval=1))
+        self.assertEqual(self.state()['count'], 1)
+        self.assertEqual(self.state()['pending'], ['late.md'])
+        self.call('UserPromptSubmit', 't2', interval=1)
+        output = self.call('Stop', 't2', interval=1)
+        self.assertEqual(output['decision'], 'block')
+        self.assertIn('Changed: ["late.md"]', output['reason'])
+
+    def test_subagent_within_parent_turn_counts_once(self):
+        self.call('UserPromptSubmit')
+        self.call('SubagentStart', agent_id='a1')
+        self.change('child.md')
+        self.assertIsNone(self.call('SubagentStop', agent_id='a1', interval=1))
+        self.change('parent.md')
+        self.assertIsNone(self.call('Stop', interval=2))
+        self.assertEqual(self.state()['count'], 1)
+        self.assertEqual(self.state()['pending'], ['child.md', 'parent.md'])
+
+    def test_subagent_edit_before_new_parent_baseline_is_carried(self):
+        self.call('UserPromptSubmit')
+        self.call('SubagentStart', agent_id='a1')
+        self.call('Stop')
+        self.change('early.md')
+        self.call('UserPromptSubmit', 't2')
+        self.call('SubagentStop', agent_id='a1')
+        self.call('Stop', 't2')
+        self.assertEqual(self.state()['count'], 1)
+        self.assertEqual(self.state()['pending'], ['early.md'])
+
+    def test_carried_paths_move_past_a_turn_without_stop(self):
+        self.call('UserPromptSubmit')
+        self.call('SubagentStart', agent_id='a1')
+        self.change('child.md')
+        self.call('SubagentStop', agent_id='a1')
+        self.call('UserPromptSubmit', 't2')
+        self.call('Stop', 't2')
+        self.assertEqual(self.state()['count'], 1)
+        self.assertEqual(self.state()['pending'], ['child.md'])
+
+    def test_claude_code_subagent_payloads(self):
+        def event(kind, **fields):
+            return json.dumps({'hook_event_name': kind, 'session_id': 's1', 'cwd': str(self.workspace), **fields})
+        self.raw(event('UserPromptSubmit', prompt_id='p1'))
+        self.raw(event('SubagentStart', prompt_id='p1', agent_id='a1', agent_type='general-purpose'))
+        self.raw(event('Stop', prompt_id='p1', stop_hook_active=False,
+                       background_tasks=[{'id': 'a1', 'type': 'subagent', 'status': 'running'}]))
+        self.change()
+        self.assertIsNone(self.raw(event('SubagentStop', prompt_id='p1', agent_id='a1',
+                                         agent_type='general-purpose', stop_hook_active=False), interval=1))
+        self.assertEqual(self.state()['count'], 1)
+        self.assertEqual(self.state()['agents'], {})
+
+    def test_unchanged_or_unpaired_subagents_are_not_counted(self):
+        self.call('SubagentStart', agent_id='a1')
+        self.assertEqual(self.diagnose()[1]['awaiting_subagent_stop'], 1)
+        self.call('SubagentStop', agent_id='a1')
+        self.change()
+        self.call('SubagentStop', agent_id='unknown')
+        state = self.state()
+        self.assertEqual((state['count'], state['pending'], state['agents']), (0, [], {}))
+
+    def test_repeated_subagent_start_keeps_its_baseline(self):
+        self.call('SubagentStart', agent_id='a1')
+        self.change()
+        self.call('SubagentStart', agent_id='a1')
+        self.call('SubagentStop', agent_id='a1')
+        self.assertEqual(self.state()['count'], 1)
+
+    def test_subagent_selection_change_is_not_counted(self):
+        self.call('SubagentStart', agent_id='a1')
+        (self.workspace / '.ascent.toml').write_text('[hook]\ninclude = ["*.md", "notes/*.md"]\n', encoding='utf-8')
+        self.change('notes/a.md')
+        self.call('SubagentStop', agent_id='a1')
+        self.assertEqual(self.state()['count'], 0)
+
+    def test_subagent_events_without_agent_id_or_in_plan_mode_create_no_state(self):
+        self.assertIsNone(self.call('SubagentStart'))
+        self.assertIsNone(self.call('SubagentStart', agent_id=''))
+        self.assertIsNone(self.call('SubagentStart', agent_id='a1', permission_mode='plan'))
+        self.assertIsNone(self.call('SubagentStop', agent_id='a1', permission_mode='plan'))
+        self.assertFalse(self.state_dir.exists())
+
+    def test_state_without_subagent_entries_remains_valid(self):
+        self.call('UserPromptSubmit')
+        path = next(self.state_dir.glob('*/state.json'))
+        data = json.loads(path.read_text())
+        del data['agents']
+        path.write_text(json.dumps(data))
+        self.change()
+        self.call('Stop')
+        self.assertEqual(self.state()['count'], 1)
+
+    def test_subagent_edit_counted_by_parent_stop_is_not_counted_again(self):
+        self.call('UserPromptSubmit')
+        self.call('SubagentStart', agent_id='a1')
+        self.change('child.md')
+        self.call('Stop')
+        self.call('SubagentStop', agent_id='a1')
+        self.assertEqual(self.state()['count'], 1)
+        self.call('UserPromptSubmit', 't2')
+        self.call('Stop', 't2')
+        self.assertEqual(self.state()['count'], 1)
+
+    def test_running_subagent_edit_before_turn_baseline_is_counted_with_turn(self):
+        self.call('UserPromptSubmit')
+        self.call('SubagentStart', agent_id='a1')
+        self.call('Stop')
+        self.change('gap.md')
+        self.call('UserPromptSubmit', 't2')
+        self.call('Stop', 't2')
+        self.assertEqual((self.state()['count'], self.state()['pending']), (1, ['gap.md']))
+        self.call('SubagentStop', agent_id='a1')
+        self.assertEqual(self.state()['count'], 1)
+
+    def test_carried_paths_count_when_turn_selection_changes(self):
+        self.call('UserPromptSubmit')
+        self.call('SubagentStart', agent_id='a1')
+        self.change('child.md')
+        self.call('SubagentStop', agent_id='a1')
+        (self.workspace / '.ascent.toml').write_text('[hook]\ninclude = ["*.md", "notes/*.md"]\n', encoding='utf-8')
+        self.call('Stop')
+        self.assertEqual((self.state()['count'], self.state()['pending']), (1, ['child.md']))
+
+    def test_paths_handed_to_open_turn_are_pending_without_stop(self):
+        self.call('UserPromptSubmit')
+        self.call('SubagentStart', agent_id='a1')
+        self.change('child.md')
+        self.call('SubagentStop', agent_id='a1')
+        self.assertEqual((self.state()['count'], self.state()['pending']), (0, ['child.md']))
+
 
 if __name__ == '__main__':
     unittest.main()
