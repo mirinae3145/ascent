@@ -599,6 +599,28 @@ class HooksTest(unittest.TestCase):
         self.change('docs/selected.md', 'after')
         self.assertEqual(self.call('Stop', interval=1, options=options)['decision'], 'block')
 
+    def test_cancelled_include_skips_unreadable_directory(self):
+        generated = self.workspace / 'generated'
+        generated.mkdir()
+        generated.chmod(0)
+        self.addCleanup(generated.chmod, 0o700)
+        if os.access(generated, os.R_OK):
+            self.skipTest('runtime can bypass directory permissions')
+        marker = self.workspace / '.ascent.toml'
+        for pattern in ('generated/**/*.md', 'generated/*/facts.md', '**/*.md'):
+            with self.subTest(include=pattern):
+                marker.write_text(f'[hook]\ninclude = ["README.md", "{pattern}"]\nexclude = ["generated/**/*.md"]\n')
+                result, report = self.diagnose()
+                self.assertEqual(result.returncode, 0, report)
+                self.assertEqual(report['selected_paths'], ['README.md'])
+                self.call('UserPromptSubmit', turn=pattern)
+                self.change('README.md', pattern)
+                self.assertEqual(self.call('Stop', turn=pattern, interval=1)['decision'], 'block')
+                self.assertEqual(self.state()['last_request']['paths'], ['README.md'])
+
+        marker.write_text('[hook]\ninclude = ["generated/**/*.md"]\nexclude = ["generated/*/facts.md"]\n')
+        self.assertEqual(self.diagnose()[1]['stage'], 'snapshot')
+
     def test_directory_wildcards_keep_matching_descendants(self):
         options = ['--include', 'notes-*/**/entry-?.md']
         self.call('UserPromptSubmit', options=options)

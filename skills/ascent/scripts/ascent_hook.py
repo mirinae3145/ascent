@@ -94,29 +94,51 @@ def matches(parts: tuple[str, ...], patterns: list[str]) -> bool:
     return any(match_parts(parts, tuple(pattern.split('/'))) for pattern in patterns)
 
 
-def match_parts(parts: tuple[str, ...], pattern: tuple[str, ...]) -> bool:
+def match_parts(parts: tuple[str, ...], pattern: tuple[str, ...], segment_matches=fnmatch.fnmatchcase) -> bool:
     if not pattern:
         return not parts
     if pattern[0] == '**':
-        return match_parts(parts, pattern[1:]) or bool(parts) and match_parts(parts[1:], pattern)
-    return bool(parts) and fnmatch.fnmatchcase(parts[0], pattern[0]) and match_parts(parts[1:], pattern[1:])
+        return (match_parts(parts, pattern[1:], segment_matches)
+                or bool(parts) and match_parts(parts[1:], pattern, segment_matches))
+    return (bool(parts) and segment_matches(parts[0], pattern[0])
+            and match_parts(parts[1:], pattern[1:], segment_matches))
 
 
-def may_contain_match(parts: tuple[str, ...], pattern: tuple[str, ...]) -> bool:
-    """Whether a directory prefix can lead to a matching descendant file."""
-    if not parts:
-        return bool(pattern)
-    if not pattern:
+def segment_covered(include: str, exclude: str) -> bool:
+    # Only ** can absorb a variable number of segments. For segment globs,
+    # prune on known coverage and keep traversing when coverage is uncertain.
+    if include == '**':
         return False
-    if pattern[0] == '**':
-        return may_contain_match(parts, pattern[1:]) or may_contain_match(parts[1:], pattern)
-    return fnmatch.fnmatchcase(parts[0], pattern[0]) and may_contain_match(parts[1:], pattern[1:])
+    if include == exclude or exclude == '*':
+        return True
+    return not any(c in include for c in '*?[') and fnmatch.fnmatchcase(include, exclude)
+
+
+def descendant_patterns(parts, patterns):
+    """Return the pattern suffixes that can still select files below a directory."""
+    for part in parts:
+        following = set()
+        for pattern in patterns:
+            while pattern and pattern[0] == '**':
+                following.add(pattern)  # ** consumes this directory, or matches zero segments.
+                pattern = pattern[1:]
+            if len(pattern) > 1 and fnmatch.fnmatchcase(part, pattern[0]):
+                following.add(pattern[1:])
+        patterns = following
+    return patterns
 
 
 def snapshot(root: Path, selection: Selection) -> dict[str, str]:
-    parsed = [tuple(p.split('/')) for p in selection.include]
-    # A trailing ** excludes every file under a matching directory.
-    subtrees = [tuple(p.split('/')) for p in selection.exclude if p == '**' or p.endswith('/**')]
+    exclude = {tuple(p.split('/')) for p in selection.exclude}
+    include = {tuple(p.split('/')) for p in selection.include} - exclude
+    if not include:
+        return {}
+
+    def may_select_below(parts):
+        candidates = descendant_patterns(parts, include)
+        excluded = descendant_patterns(parts, exclude)
+        return any(not any(match_parts(candidate, pattern, segment_covered) for pattern in excluded)
+                   for candidate in candidates)
     result = {}
     total = 0
     def directory_error(error):
@@ -129,8 +151,7 @@ def snapshot(root: Path, selection: Selection) -> dict[str, str]:
         dirs[:] = sorted(
             d for d in dirs
             if not d.startswith('.') and d not in SKIP_DIRS and not (parent / d).is_symlink()
-            and not any(match_parts((parent / d).relative_to(root).parts, p) for p in subtrees)
-            and any(may_contain_match((parent / d).relative_to(root).parts, p) for p in parsed)
+            and may_select_below((parent / d).relative_to(root).parts)
         )
         for name in sorted(files):
             path = parent / name
