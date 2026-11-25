@@ -28,19 +28,22 @@ check = ["python3", "tools/check_all.py"]
 ## Preview and publish
 
 Give each concurrent writer its own worktree and commit the intended changes there.
+Use a complete checkout with every tracked file present and no index entries marked skip-worktree or assume-unchanged.
 Preview and push require a clean index and worktree, including nonignored untracked files in that worktree.
 Use the installed script path and the destination named by the contract for both steps.
 
 1. Run `python3 /path/to/ascent/scripts/publish.py preview origin main` to inspect the proposed publication.
-   The preview fetches the destination and lists the outgoing commits and their touched paths.
+   The preview fetches the named remote's single push destination and prints its branch tip and the local head as `BASE -> HEAD`.
+   It lists the outgoing commits and their touched paths.
    It checks each commit against its parents, including deletions, both names of a rename and changes that later commits undo.
    If histories have diverged, integrate the fetched revision according to the workspace contract and preview again.
-1. When publication is authorized, run `python3 /path/to/ascent/scripts/publish.py push origin main`.
-   The publisher repeats the preview, runs the configured check, and verifies the worktree is still clean at the checked revision.
+1. After approval, run `python3 /path/to/ascent/scripts/publish.py push origin main BASE HEAD` with both full commit IDs from the approved preview.
+   If either revision has moved, preview the new range and obtain approval again.
+   The publisher verifies the range, runs the configured check, and verifies the worktree is still clean at the checked revision.
    It advances the destination from the fetched revision to that exact descendant.
    If the check fails or another writer moves the destination, inspect the result and retry with the current history.
 
-In CI, run `python3 /path/to/ascent/scripts/publish.py check` from the same checkout root.
+In CI, run `python3 /path/to/ascent/scripts/publish.py check` from a complete checkout of the revision.
 This action reads the committed check command and returns failure if it fails, without contacting a remote.
 
 ## Refinement across sessions

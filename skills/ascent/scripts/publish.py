@@ -6,12 +6,20 @@ from pathlib import Path
 import subprocess
 import sys
 import tomllib
+import uuid
 
 from ascent_hook import MAX_FILE, WORKSPACE_FILE, matches, pattern_list, workspace_root
 
 
-def git(*args, data=None):
-    return subprocess.run(['git', '--no-replace-objects', *args], input=data, stdout=subprocess.PIPE, check=True).stdout
+def git(*args, data=None, config=None):
+    options = ['git', '--no-replace-objects']
+    env = None
+    if config is not None:
+        key, value = config
+        # URLs and remote names can contain '=' inside the config key.
+        options.append(f'--config-env={key}=ASCENT_GIT_CONFIG_VALUE')
+        env = {**os.environ, 'ASCENT_GIT_CONFIG_VALUE': value}
+    return subprocess.run([*options, *args], input=data, env=env, stdout=subprocess.PIPE, check=True).stdout
 
 
 def publish_settings(head):
@@ -39,18 +47,33 @@ def require_clean():
         raise ValueError('commit or set aside changes in this worktree before publishing (see git status)')
 
 
-def fetch_destination(remote, branch):
-    ref = f'refs/heads/{branch}'
-    git('check-ref-format', ref)
+def require_complete_checkout():
+    # A clean status can hide omitted files or changes masked by index flags.
+    entries = git('ls-files', '-v', '-z', '--cached', '--deleted').split(b'\0')
+    if any(entry.startswith((b'S ', b'R ')) or entry[:1].islower() for entry in entries):
+        raise ValueError('use a complete checkout with all tracked files present and no '
+                         'skip-worktree or assume-unchanged entries')
+
+
+def push_url(remote):
     urls = git('remote', 'get-url', '--push', '--all', '--', remote).splitlines()
     if len(urls) != 1:
         raise ValueError('choose a remote with one push destination')
-    # Fetch the actual push endpoint. An explicit URL also avoids the remote's
-    # configured mirror or additional push refspecs.
-    url = os.fsdecode(urls[0])
-    git('fetch', '--no-tags', '--no-recurse-submodules', '--refmap=', '--', url, ref)
-    base = git('rev-parse', '--verify', 'FETCH_HEAD^{commit}').decode('ascii').strip()
-    return url, ref, base
+    return os.fsdecode(urls[0])
+
+
+def fetch_destination(url, ref):
+    token = uuid.uuid4().hex
+    private_ref = f'refs/ascent/publish/{token}'
+    # Git expands the alias once, to the already-resolved push endpoint. Passing
+    # that endpoint as a new URL would subject it to insteadOf a second time.
+    alias = f'ascent-fetch-{token}'
+    try:
+        git('fetch', '--no-write-fetch-head', '--no-tags', '--no-recurse-submodules', '--refmap=',
+            '--', alias, f'{ref}:{private_ref}', config=(f'url.{url}.insteadOf', alias))
+        return git('rev-parse', '--verify', f'{private_ref}^{{commit}}').decode('ascii').strip()
+    finally:
+        git('update-ref', '-d', private_ref)
 
 
 def outgoing_paths(revisions):
@@ -68,6 +91,7 @@ def run(args):
     top = os.fsdecode(git('rev-parse', '--show-toplevel').removesuffix(b'\n'))
     if Path(top).resolve() != root:
         raise ValueError('run from the marked root of a Git worktree')
+    require_complete_checkout()
     head = git('rev-parse', '--verify', 'HEAD^{commit}').decode('ascii').strip()
     settings = publish_settings(head)
     command = check_command(settings)
@@ -77,8 +101,13 @@ def run(args):
 
     allow = pattern_list(settings.get('allow'), 'publish.allow')
     require_clean()
-    url, ref, base = fetch_destination(args.remote, args.branch)
+    ref = f'refs/heads/{args.branch}'
+    git('check-ref-format', ref)
+    url = push_url(args.remote)
+    base = fetch_destination(url, ref)
     print(f'{args.remote} {ref}: {base} -> {head}', flush=True)
+    if args.action == 'push' and (base, head) != (args.base, args.head):
+        raise ValueError('the destination or worktree revision differs from the approved range; preview again')
     if head == base:
         print('Already at the destination revision.')
         return
@@ -105,13 +134,16 @@ def run(args):
 
     sys.stdout.flush()
     subprocess.run(command, cwd=root, check=True)
+    require_complete_checkout()
     require_clean()
     if git('rev-parse', 'HEAD').decode('ascii').strip() != head:
         raise ValueError('the worktree revision changed during the check; preview again')
+    if push_url(args.remote) != url:
+        raise ValueError('the push destination changed during the check; preview again')
     # The ancestry check pins a fast-forward; the explicit lease also refuses
     # deletion, rewind or another writer's update between fetch and push.
     git('push', '--no-follow-tags', '--recurse-submodules=no', f'--force-with-lease={ref}:{base}',
-        '--', url, f'{head}:{ref}')
+        '--', args.remote, f'{head}:{ref}', config=(f'remote.{args.remote}.mirror', 'false'))
     print(f'Published {head} to {args.remote} {ref}.')
 
 
@@ -123,6 +155,9 @@ def main():
         sub = actions.add_parser(action, help=f'{action} changes to an existing remote branch')
         sub.add_argument('remote', help='configured Git remote name')
         sub.add_argument('branch', help='destination branch name')
+        if action == 'push':
+            sub.add_argument('base', help='full destination commit ID from the approved preview')
+            sub.add_argument('head', help='full worktree commit ID from the approved preview')
     try:
         run(parser.parse_args())
     except subprocess.CalledProcessError as error:

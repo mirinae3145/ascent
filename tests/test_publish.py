@@ -71,12 +71,103 @@ if effect == 'race':
         self.git('add', '-A')
         self.git('commit', '-m', message)
 
-    def publish(self, action='push', *, ok=True):
+    def publish(self, action='push', *, approved=None, ok=True):
         dest = [] if action == 'check' else ['team', 'shared']
+        if action == 'push':
+            dest.extend(approved if approved is not None else [self.tip(), self.git('rev-parse', 'HEAD')])
         result = subprocess.run([sys.executable, str(PUBLISH), action, *dest], cwd=self.workspace,
                                 env=self.env, capture_output=True, text=True, timeout=15)
         self.assertEqual(result.returncode == 0, ok, result.stdout + result.stderr)
         return result
+
+    def preview_range(self):
+        first_line = self.publish('preview').stdout.splitlines()[0]
+        return first_line.removeprefix('team refs/heads/shared: ').split(' -> ')
+
+    def test_named_remote_pushurl_and_single_ref(self):
+        other = self.base / 'other.git'
+        self.git('clone', '--bare', str(self.remote), str(other))
+        self.git('remote', 'set-url', 'team', str(other))
+        self.git('remote', 'set-url', '--push', 'team', str(self.remote))
+        self.git('config', f'url.{other}.pushInsteadOf', str(self.remote))
+        self.git('config', 'remote.team.mirror', 'true')
+        self.git('config', 'remote.team.push', 'work:refs/heads/extra')
+        self.git('config', 'push.followTags', 'true')
+        self.write('records/record.md', 'ready')
+        self.commit('record')
+        self.git('tag', '-a', 'tagged', '-m', 'local tag')
+        self.publish(approved=self.preview_range())
+        self.assertEqual(self.tip(), self.git('rev-parse', 'HEAD'))
+        self.assertEqual(self.git('for-each-ref', '--format=%(refname)', cwd=self.remote),
+                         'refs/heads/shared')
+        self.assertEqual(self.git('rev-parse', 'refs/heads/shared', cwd=other), self.start)
+
+    def test_push_requires_both_previewed_revisions(self):
+        self.write('records/note.md', 'allowed')
+        self.commit('ready')
+        self.publish(ok=False, approved=())
+        self.assertFalse(self.audit.exists())
+        self.assertEqual(self.tip(), self.start)
+
+    def test_preview_fetches_the_resolved_push_url_once(self):
+        target = self.base / 'team=records.git'
+        self.git('clone', '--bare', str(self.remote), str(target))
+        self.git('config', 'remote.team.pushurl', 'records-destination')
+        self.git('config', f'url.{target}.insteadOf', 'records-destination')
+        self.git('config', f'url.{self.base / "unavailable"}.insteadOf', str(target))
+        self.write('records/new.md', 'ready')
+        self.commit('ready')
+        self.publish(approved=self.preview_range())
+        self.assertEqual(self.git('rev-parse', 'refs/heads/shared', cwd=target), self.git('rev-parse', 'HEAD'))
+        self.assertEqual(self.tip(), self.start)
+
+    def test_local_commit_after_preview_needs_new_approval(self):
+        self.write('records/one.md', 'ready')
+        self.commit('ready')
+        approved = self.preview_range()
+        self.write('records/two.md', 'later')
+        self.commit('later')
+        self.assertIn('preview again', self.publish(approved=approved, ok=False).stderr)
+        self.assertFalse(self.audit.exists())
+        self.assertEqual(self.tip(), self.start)
+
+    def test_rewound_destination_after_preview_needs_new_approval(self):
+        self.write('records/old.md', 'published')
+        self.commit('already published')
+        self.git('push', 'team', 'HEAD:refs/heads/shared')
+        self.write('records/new.md', 'ready')
+        self.commit('ready')
+        approved = self.preview_range()
+        self.git('update-ref', 'refs/heads/shared', self.start, cwd=self.remote)
+        self.assertIn('preview again', self.publish(approved=approved, ok=False).stderr)
+        self.assertFalse(self.audit.exists())
+        self.assertEqual(self.tip(), self.start)
+
+    def test_fetch_is_isolated_from_fetch_head(self):
+        self.write('records/new.md', 'ready')
+        self.commit('ready')
+        head = self.git('rev-parse', 'HEAD')
+        self.git('fetch', '.', 'work')
+        refs = self.git('for-each-ref')
+        self.assertEqual(self.preview_range(), [self.start, head])
+        self.assertEqual(self.git('rev-parse', 'FETCH_HEAD'), head)
+        self.assertEqual(self.git('for-each-ref'), refs)
+        self.publish(approved=[self.start, head])
+        self.assertEqual(self.tip(), head)
+
+    def test_sparse_checkout_cannot_pass_publication_checks(self):
+        self.write('records/new.md', 'ready')
+        self.commit('ready')
+        approved = self.preview_range()
+        self.git('sparse-checkout', 'set', '--cone', 'other')
+        self.assertFalse((self.workspace / 'records/new.md').exists())
+        self.assertEqual(self.git('status', '--porcelain'), '')
+        for action in ('check', 'preview', 'push'):
+            with self.subTest(action=action):
+                result = self.publish(action, approved=approved, ok=False)
+                self.assertIn('complete checkout', result.stderr)
+        self.assertFalse(self.audit.exists())
+        self.assertEqual(self.tip(), self.start)
 
     def test_worktree_preview_ci_and_fast_forward(self):
         other = self.base / 'writer'
