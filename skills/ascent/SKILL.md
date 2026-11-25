@@ -29,7 +29,8 @@ Identify a workspace by a regular `.ascent.toml` file directly in the selected d
 The marker follows these rules:
 
 - **Contents**: An empty file is valid; contents must be UTF-8 TOML within 2 MiB.
-  Only the optional hook's document selection, `hook.include`, is interpreted; other keys are reserved.
+  The refinement hook reads `hook.include` and `hook.exclude`.
+  The Git publisher reads `publish.allow` and `publish.check`.
 - **Symbolic links**: Resolve the selected directory's symbolic links before checking, so a linked directory and its original path identify the same workspace.
   The marker file itself must not be a symbolic link or directory.
 - **No inference**: Do not search parent directories or infer marker-based identity from directory names, target links, Git, or an installation manager.
@@ -70,6 +71,16 @@ Preserve that choice for existing workspaces.
 
 If the user has a workspace manager, follow its existing discovery and installation conventions; Ascent does not require one.
 When migrating an existing workspace policy to this skill, read [the integration guide](references/integration.md) for the entry path and responsibility split.
+
+### Collaborate in a Git workspace
+
+Find and follow the contributor contract through the workspace's entry documents before preparing changes.
+Give concurrent writers separate worktrees for editing, staging, and publication.
+Successive sessions can reuse one worktree and share its pending refinement paths.
+Other checkouts receive records when they integrate the published revision.
+
+Read the [Git publishing guide](references/publishing.md) when configuring direct publication, checking outgoing records, or setting up the same command in CI.
+The team sets its cadence, approval and review route, and any claims on shared resources.
 
 ## Enter or resume work
 
