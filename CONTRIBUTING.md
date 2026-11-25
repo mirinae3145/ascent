@@ -16,7 +16,7 @@ python3 -m unittest discover -s tests -v
 ```
 
 Also run the available skill validator when changing the skill.
-Test both supported event payloads and failure behavior; non-Ascent, malformed input, unsupported events, and read-only plan mode must not produce continuation requests.
+Test both supported event payloads and failure behavior; non-Ascent, malformed input, unsupported events, subagent events, and read-only plan mode must not produce continuation requests.
 Run native Windows checks when available before claiming Windows execution was verified.
 Keep generated indexes, caches, runtime state, and installation-specific records out of tracked source.
 

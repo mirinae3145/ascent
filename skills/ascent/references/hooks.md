@@ -6,19 +6,23 @@ It accepts the command-hook contracts of [Codex](https://learn.chatgpt.com/docs/
 
 ## Behavior and scope
 
-The hook reads paired events, recognizes only marked workspaces, and counts turns that changed selected documents.
+The hook reads paired events, recognizes only marked workspaces, and counts turns and subagent runs that changed selected documents.
 It requests refinement at a set interval and never edits documents itself.
 
 ### Events and failures
 
-Register the script for both `UserPromptSubmit` and `Stop`.
+Register the script for `UserPromptSubmit` and `Stop`, and for `SubagentStart` and `SubagentStop`.
+The subagent events let the hook count edits that a background subagent makes after its parent's turn has ended.
 It handles events as follows:
 
 - **Input and output**: It reads one event JSON object from stdin; valid continuations are JSON on stdout.
-- **Identifiers**: Both events must carry the same non-empty session and per-turn identifiers: `session_id` with `turn_id` for Codex or `prompt_id` for Claude Code.
+- **Turn identifiers**: Both turn events must carry the same non-empty session and per-turn identifiers: `session_id` with `turn_id` for Codex or `prompt_id` for Claude Code.
   When both turn fields are supplied, a non-empty `turn_id` takes precedence.
   A missing or invalid identifier skips observation rather than guessing a turn from the transcript.
+- **Subagent identifiers**: Both subagent events must carry the parent's `session_id` and the same non-empty `agent_id`.
+  Their turn fields differ between hosts and are not used.
 - **Failures**: Other events, malformed input, unavailable files, invalid state, lock timeouts, and plan mode fail open without requesting continuation.
+  Subagent events never request continuation.
   Diagnostics go to stderr without copying the prompt, transcript, or file contents.
 
 ### Workspace recognition
@@ -57,6 +61,23 @@ The continuation preserves the original task's scope and permissions and does no
 
 The request points to the skill's guidance on maintaining knowledge and continuity and first asks to reassess applicable guidance, since refinement is record work.
 It also asks the pass to find content that this guidance says not to record, such as readily queryable status, and replace or remove it.
+
+### Subagent runs
+
+A subagent emits `SubagentStart` and `SubagentStop` instead of turn events, and a background subagent can keep editing after its parent's `Stop`.
+Without the subagent events, such edits fall into the next turn's baseline and are never counted.
+Each subagent run is observed as follows:
+
+1. On `SubagentStart`, snapshot selected documents for that `agent_id`; a repeated start keeps the first snapshot.
+1. On `SubagentStop`, compare with that snapshot.
+   If the parent's turn is still open, its `Stop` counts the changed paths once together with that turn.
+   This includes edits made before that turn's baseline.
+   Otherwise the run counts as one changed turn.
+1. When a run brings the count to the interval, the parent's next `Stop` returns the request, even if that turn changed nothing.
+   A block decision on `SubagentStop` would keep the subagent running instead of reaching the parent.
+
+Paths handed to a turn that ends without `Stop`, such as an interrupted one, move on to the session's next turn.
+A `SubagentStop` without a recorded start, a run whose selection changed, and an unchanged run are not counted.
 
 ## Selected documents and state
 
@@ -111,36 +132,41 @@ Choose the list as follows:
 
 ### Saved state
 
-Only path names and SHA-256 hashes are retained, together with counters, turn/session identifiers, and request metadata.
+Only path names and SHA-256 hashes are retained, together with counters, turn, session, and subagent identifiers, and request metadata.
 There is no transcript collection, network call, or stored document content.
 State is stored and limited as follows:
 
 - **Location**: State defaults to `$XDG_STATE_HOME/ascent` or `~/.local/state/ascent` on POSIX, and `%LOCALAPPDATA%/Ascent/state` on Windows.
   `--state-dir PATH` overrides it and must remain outside the workspace.
 - **Separation**: Workspaces have separate state files keyed by their canonical paths.
-- **Pruning**: Session snapshots older than 30 days and excess inactive entries are pruned; the workspace counter and pending set persist.
+- **Pruning**: Session and subagent snapshots older than 30 days and excess inactive entries are pruned; the workspace counter and pending set persist.
 - **Size limits**: The observer refuses oversized snapshots (2 MiB per file, 16 MiB total, 2,000 selected files) rather than comparing a partial snapshot.
 
 ## Registration
 
-Use two command registrations pointing to the same script in the selected host's hook configuration, for example:
+Use four command registrations pointing to the same script in the selected host's hook configuration, for example:
 
 ```json
 {
   "hooks": {
     "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "python3 /absolute/ascent/skills/ascent/scripts/ascent_hook.py --interval 5", "timeout": 10}]}],
-    "Stop": [{"hooks": [{"type": "command", "command": "python3 /absolute/ascent/skills/ascent/scripts/ascent_hook.py --interval 5", "timeout": 10}]}]
+    "Stop": [{"hooks": [{"type": "command", "command": "python3 /absolute/ascent/skills/ascent/scripts/ascent_hook.py --interval 5", "timeout": 10}]}],
+    "SubagentStart": [{"hooks": [{"type": "command", "command": "python3 /absolute/ascent/skills/ascent/scripts/ascent_hook.py --interval 5", "timeout": 10}]}],
+    "SubagentStop": [{"hooks": [{"type": "command", "command": "python3 /absolute/ascent/skills/ascent/scripts/ascent_hook.py --interval 5", "timeout": 10}]}]
   }
 }
 ```
 
-Merge with existing registrations rather than replacing the user's hook file.
-Use an interpreter and quoted paths appropriate to the platform; `python3` is only an example.
-Codex requires native review/trust for new command definitions; registration does not grant it.
-Change the interval and include arguments consistently on both events, then reapply the definitions and review changed commands.
-Without a workspace list, mismatched include arguments leave every turn uncounted; mismatched intervals are not detected.
+Apply the registrations as follows:
 
-When an installation manager registers hooks, declare both events through it and follow its conventions instead of editing the host configuration directly.
+- **Merging**: Merge with existing registrations rather than replacing the user's hook file.
+- **Interpreter**: Use an interpreter and quoted paths appropriate to the platform; `python3` is only an example.
+- **Trust**: Codex requires native review/trust for new command definitions; registration does not grant it.
+- **Subagent events**: The two subagent registrations can be left out, at the cost of missing edits by subagents that outlive their parent's turn.
+- **Consistent options**: Change the interval and include arguments consistently on all events, then reapply the definitions and review changed commands.
+  Without a workspace list, mismatched include arguments leave every turn uncounted; mismatched intervals are not detected.
+
+When an installation manager registers hooks, declare the events through it and follow its conventions instead of editing the host configuration directly.
 
 ## Inspect local observation state
 
@@ -166,6 +192,7 @@ The response's `status` and `stage` fields are read as follows:
 - **Invalid options**: Invalid diagnostic arguments use the same error response with `stage: "options"`, including argument-parsing failures.
 
 `awaiting_stop` counts saved unhandled snapshots and can include interrupted sessions, so it is not a count of currently running agents.
+`awaiting_subagent_stop` likewise counts saved subagent snapshots, including those of subagents that never reached `SubagentStop`.
 Supply the options actually used by the host: the diagnostic reports the requested settings and does not detect disagreement between two registrations.
 
 ## Checks and limitations
@@ -178,5 +205,7 @@ A new or untrusted command can be skipped by the host, so verify both registrati
 The hook has these further limitations:
 
 - **Interrupted turns**: An interrupted or failed turn that never emits `Stop` is not counted; the next prompt takes a new baseline.
+- **Subagent scope**: A subagent run also captures edits that others make while it runs.
+  A subagent working in another directory, such as a separate worktree, is outside its parent's workspace.
 - **Unrecorded knowledge**: The hook observes changes to existing project records, so it cannot recover knowledge that was never written down.
 - **Native Windows**: Native Windows behavior requires Windows execution checks; the implementation uses platform-specific standard-library locks.

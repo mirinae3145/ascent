@@ -178,9 +178,18 @@ def workspace_lock(path: Path):
             release()
 
 
+def check_snapshot_entry(entry, kind: str) -> None:
+    if not isinstance(entry.get('baseline'), dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in entry['baseline'].items()):
+        raise ValueError(f'invalid {kind} baseline')
+    if 'include' in entry and (not isinstance(entry['include'], list) or not all(isinstance(p, str) for p in entry['include'])):
+        raise ValueError(f'invalid {kind} selection')
+    if type(entry.get('seen')) not in (float, int):
+        raise ValueError(f'invalid {kind} metadata')
+
+
 def read_state(path: Path, root: Path) -> dict:
     if not path.exists():
-        return {'version': 1, 'workspace': str(root), 'count': 0, 'pending': [], 'sessions': {}}
+        return {'version': 1, 'workspace': str(root), 'count': 0, 'pending': [], 'sessions': {}, 'agents': {}}
     if path.stat().st_size > 8 * 1024 * 1024:
         raise ValueError('workspace state exceeds limits')
     data = json.loads(path.read_text(encoding='utf-8'))
@@ -195,12 +204,19 @@ def read_state(path: Path, root: Path) -> dict:
     for session in data['sessions'].values():
         if not isinstance(session, dict) or not isinstance(session.get('turn_id'), str):
             raise ValueError('invalid session identity')
-        if not isinstance(session.get('baseline'), dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in session['baseline'].items()):
-            raise ValueError('invalid session baseline')
-        if 'include' in session and (not isinstance(session['include'], list) or not all(isinstance(p, str) for p in session['include'])):
-            raise ValueError('invalid session selection')
-        if type(session.get('handled')) is not bool or type(session.get('seen')) not in (float, int):
+        check_snapshot_entry(session, 'session')
+        if type(session.get('handled')) is not bool:
             raise ValueError('invalid session metadata')
+        if 'carried' in session and (not isinstance(session['carried'], list) or not all(isinstance(p, str) for p in session['carried'])):
+            raise ValueError('invalid carried paths')
+    # Subagent snapshots were added later; state written before them has none.
+    data.setdefault('agents', {})
+    if not isinstance(data['agents'], dict):
+        raise ValueError('invalid subagent snapshots')
+    for agent in data['agents'].values():
+        if not isinstance(agent, dict) or not isinstance(agent.get('session_id'), str):
+            raise ValueError('invalid subagent identity')
+        check_snapshot_entry(agent, 'subagent')
     return data
 
 
@@ -273,6 +289,7 @@ def diagnose(workspace: Path, args) -> dict:
             interval=args.interval, pending_paths=data['pending'],
             sessions=len(data['sessions']),
             awaiting_stop=sum(not session['handled'] for session in data['sessions'].values()),
+            awaiting_subagent_stop=len(data['agents']),
             last_request=({k: last.get(k) for k in ('time', 'changed_turns', 'paths', 'removed')}
                           if isinstance(last, dict) else None),
         )
@@ -282,19 +299,79 @@ def diagnose(workspace: Path, args) -> dict:
     return report
 
 
+def prune(entries: dict, keep: str, now: float) -> None:
+    """Drop entries unseen for 30 days, then the oldest beyond 128, never the current one."""
+    for key in list(entries):
+        if key != keep and entries[key]['seen'] < now - 30 * 86400:
+            del entries[key]
+    while len(entries) > 128:
+        oldest = min((k for k in entries if k != keep), key=lambda k: entries[k]['seen'])
+        del entries[oldest]
+
+
+def changed_paths(baseline: dict[str, str], current: dict[str, str]) -> set[str]:
+    return {name for name in set(baseline) | set(current) if baseline.get(name) != current.get(name)}
+
+
+def observe_subagent(kind: str, data: dict, sid: str, agent_id: str,
+                     current: dict[str, str], includes: list[str], now: float) -> bool:
+    """Compare a subagent's documents between its start and stop; return whether state changed.
+
+    A subagent emits no turn events of its own, and a background subagent can
+    outlive the parent turn that launched it. Its edits would then fall between
+    the parent's Stop and the next baseline and never be counted.
+    Subagent events never request continuation: a block decision there would
+    keep the subagent running instead of reaching the parent.
+    """
+    agents = data['agents']
+    key = json.dumps([sid, agent_id])
+    if kind == 'SubagentStart':
+        if key in agents:
+            return False
+        agents[key] = {'session_id': sid, 'baseline': current, 'include': includes, 'seen': now}
+        prune(agents, key, now)
+        return True
+    agent = agents.pop(key, None)
+    if agent is None:
+        return False
+    if agent.get('include', includes) != includes:
+        print('Ascent observer skipped a subagent whose document selection changed.', file=sys.stderr)
+        return True
+    changed = changed_paths(agent['baseline'], current)
+    if not changed:
+        return True
+    session = data['sessions'].get(sid)
+    if session is not None and not session['handled']:
+        # The parent's open turn counts these paths at its Stop, so a subagent
+        # that finishes within the turn is not counted twice, and edits made
+        # before that turn's baseline are not lost.
+        session['carried'] = sorted(set(session.get('carried', [])) | changed)
+    else:
+        # The parent's turn has ended, so the subagent's work counts as one
+        # changed turn; the next parent Stop dispatches any due request.
+        data['count'] += 1
+        data['pending'] = sorted(set(data['pending']) | changed)
+    return True
+
+
 def handle(event: dict, args) -> dict | None:
     if not isinstance(event, dict):
         raise ValueError('expected an event object')
     kind = event.get('hook_event_name')
-    if kind not in ('UserPromptSubmit', 'Stop') or event.get('permission_mode') == 'plan':
+    if kind not in ('UserPromptSubmit', 'Stop', 'SubagentStart', 'SubagentStop') or event.get('permission_mode') == 'plan':
         return None
     if kind == 'Stop' and event.get('stop_hook_active'):
         return None
-    # Codex sends turn_id; Claude Code sends prompt_id for the same per-turn identity.
-    turn = event.get('turn_id') or event.get('prompt_id')
-    for field, value in (('session_id', event.get('session_id')), ('turn_id or prompt_id', turn), ('cwd', event.get('cwd'))):
+    if kind.startswith('Subagent'):
+        # Both hosts pair a subagent's events by agent_id under the parent's
+        # session_id; their turn identifiers differ and are not needed.
+        identity, field = event.get('agent_id'), 'agent_id'
+    else:
+        # Codex sends turn_id; Claude Code sends prompt_id for the same per-turn identity.
+        identity, field = event.get('turn_id') or event.get('prompt_id'), 'turn_id or prompt_id'
+    for name, value in (('session_id', event.get('session_id')), (field, identity), ('cwd', event.get('cwd'))):
         if not isinstance(value, str) or not value:
-            raise ValueError(f'missing event field: {field}')
+            raise ValueError(f'missing event field: {name}')
     root = workspace_root(event['cwd'])
     if root is None:
         return None
@@ -305,18 +382,23 @@ def handle(event: dict, args) -> dict | None:
     sid = event['session_id']
     with workspace_lock(path.with_suffix('.lock')):
         data = read_state(path, root)
+        if kind.startswith('Subagent'):
+            if observe_subagent(kind, data, sid, identity, current, includes, now):
+                write_state(path, data)
+            return None
+        turn = identity
         sessions = data['sessions']
         session = sessions.get(sid)
         if kind == 'UserPromptSubmit':
             if session is not None and session['turn_id'] == turn:
                 return None
+            # Paths that a subagent handed to a turn that never reached Stop,
+            # such as an interrupted one, move on to the new turn.
+            carried = session.get('carried', []) if session is not None and not session['handled'] else []
             sessions[sid] = {'turn_id': turn, 'baseline': current, 'include': includes, 'handled': False, 'seen': now}
-            for old_sid in list(sessions):
-                if old_sid != sid and sessions[old_sid]['seen'] < now - 30 * 86400:
-                    del sessions[old_sid]
-            while len(sessions) > 128:
-                oldest = min((s for s in sessions if s != sid), key=lambda s: sessions[s]['seen'])
-                del sessions[oldest]
+            if carried:
+                sessions[sid]['carried'] = carried
+            prune(sessions, sid, now)
             write_state(path, data)
             return None
         if session is None or session['turn_id'] != turn or session['handled']:
@@ -326,14 +408,17 @@ def handle(event: dict, args) -> dict | None:
         # for example after editing the workspace list or registering the two
         # events with different options. Such a turn is not counted.
         selection_changed = session.get('include', includes) != includes
-        changed = {name for name in set(baseline) | set(current) if baseline.get(name) != current.get(name)}
+        changed = changed_paths(baseline, current) | set(session.pop('carried', []))
         session.update(handled=True, baseline={}, seen=now)
         output = None
         if selection_changed:
             print('Ascent observer skipped a turn whose document selection changed.', file=sys.stderr)
-        elif changed:
-            data['count'] += 1
-            data['pending'] = sorted(set(data['pending']) | changed)
+        else:
+            if changed:
+                data['count'] += 1
+                data['pending'] = sorted(set(data['pending']) | changed)
+            # Subagents that outlive their parent's turn are counted without a
+            # turn of their own, so a turn without edits can reach the interval.
             if data['count'] >= args.interval:
                 # Accumulated paths come from every session since the last
                 # request. A path missing from the current snapshot was either
