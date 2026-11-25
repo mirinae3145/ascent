@@ -340,6 +340,9 @@ def observe_subagent(kind: str, data: dict, sid: str, agent_id: str,
     changed = changed_paths(agent['baseline'], current)
     if not changed:
         return True
+    # Paths join the workspace set now, so they survive a parent turn that
+    # never reaches Stop; only the count waits for the parent's turn.
+    data['pending'] = sorted(set(data['pending']) | changed)
     session = data['sessions'].get(sid)
     if session is not None and not session['handled']:
         # The parent's open turn counts these paths at its Stop, so a subagent
@@ -348,10 +351,27 @@ def observe_subagent(kind: str, data: dict, sid: str, agent_id: str,
         session['carried'] = sorted(set(session.get('carried', [])) | changed)
     else:
         # The parent's turn has ended, so the subagent's work counts as one
-        # changed turn; the next parent Stop dispatches any due request.
+        # changed turn; the next observed Stop dispatches any due request.
         data['count'] += 1
-        data['pending'] = sorted(set(data['pending']) | changed)
     return True
+
+
+def settle_subagents(data: dict, sid: str, turn_start: float, baseline: dict[str, str],
+                     current: dict[str, str], includes: list[str], now: float) -> set[str]:
+    """At a counted parent Stop, move the session's running subagents past it.
+
+    Return their edits made before the turn's baseline, which the turn counts,
+    and rebase their snapshots to the Stop snapshot so that a later
+    SubagentStop counts only edits this turn has not already counted.
+    """
+    earlier = set()
+    for agent in data['agents'].values():
+        if agent['session_id'] != sid or agent.get('include', includes) != includes:
+            continue
+        if agent['seen'] < turn_start:
+            earlier |= changed_paths(agent['baseline'], baseline)
+        agent.update(baseline=current, seen=now)
+    return earlier
 
 
 def handle(event: dict, args) -> dict | None:
@@ -406,14 +426,22 @@ def handle(event: dict, args) -> dict | None:
         baseline = session['baseline']
         # Snapshots taken with different selections differ without any edit,
         # for example after editing the workspace list or registering the two
-        # events with different options. Such a turn is not counted.
+        # events with different options. Such a turn's own changes are not counted.
         selection_changed = session.get('include', includes) != includes
-        changed = changed_paths(baseline, current) | set(session.pop('carried', []))
+        # Subagents compared consistent selections of their own, so the paths
+        # they handed to this turn count even when the turn's own do not.
+        carried = set(session.pop('carried', []))
+        turn_start = session['seen']
         session.update(handled=True, baseline={}, seen=now)
         output = None
         if selection_changed:
             print('Ascent observer skipped a turn whose document selection changed.', file=sys.stderr)
+            if carried:
+                data['count'] += 1
+                data['pending'] = sorted(set(data['pending']) | carried)
         else:
+            changed = (changed_paths(baseline, current) | carried
+                       | settle_subagents(data, sid, turn_start, baseline, current, includes, now))
             if changed:
                 data['count'] += 1
                 data['pending'] = sorted(set(data['pending']) | changed)

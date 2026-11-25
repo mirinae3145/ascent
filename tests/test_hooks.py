@@ -681,6 +681,44 @@ class HooksTest(unittest.TestCase):
         self.call('Stop')
         self.assertEqual(self.state()['count'], 1)
 
+    def test_subagent_edit_counted_by_parent_stop_is_not_counted_again(self):
+        self.call('UserPromptSubmit')
+        self.call('SubagentStart', agent_id='a1')
+        self.change('child.md')
+        self.call('Stop')
+        self.call('SubagentStop', agent_id='a1')
+        self.assertEqual(self.state()['count'], 1)
+        self.call('UserPromptSubmit', 't2')
+        self.call('Stop', 't2')
+        self.assertEqual(self.state()['count'], 1)
+
+    def test_running_subagent_edit_before_turn_baseline_is_counted_with_turn(self):
+        self.call('UserPromptSubmit')
+        self.call('SubagentStart', agent_id='a1')
+        self.call('Stop')
+        self.change('gap.md')
+        self.call('UserPromptSubmit', 't2')
+        self.call('Stop', 't2')
+        self.assertEqual((self.state()['count'], self.state()['pending']), (1, ['gap.md']))
+        self.call('SubagentStop', agent_id='a1')
+        self.assertEqual(self.state()['count'], 1)
+
+    def test_carried_paths_count_when_turn_selection_changes(self):
+        self.call('UserPromptSubmit')
+        self.call('SubagentStart', agent_id='a1')
+        self.change('child.md')
+        self.call('SubagentStop', agent_id='a1')
+        (self.workspace / '.ascent.toml').write_text('[hook]\ninclude = ["*.md", "notes/*.md"]\n', encoding='utf-8')
+        self.call('Stop')
+        self.assertEqual((self.state()['count'], self.state()['pending']), (1, ['child.md']))
+
+    def test_paths_handed_to_open_turn_are_pending_without_stop(self):
+        self.call('UserPromptSubmit')
+        self.call('SubagentStart', agent_id='a1')
+        self.change('child.md')
+        self.call('SubagentStop', agent_id='a1')
+        self.assertEqual((self.state()['count'], self.state()['pending']), (0, ['child.md']))
+
 
 if __name__ == '__main__':
     unittest.main()

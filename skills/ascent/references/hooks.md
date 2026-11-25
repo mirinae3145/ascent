@@ -69,14 +69,17 @@ Without the subagent events, such edits fall into the next turn's baseline and a
 Each subagent run is observed as follows:
 
 1. On `SubagentStart`, snapshot selected documents for that `agent_id`; a repeated start keeps the first snapshot.
-1. On `SubagentStop`, compare with that snapshot.
-   If the parent's turn is still open, its `Stop` counts the changed paths once together with that turn.
-   This includes edits made before that turn's baseline.
+1. On the parent's `Stop`, unless its selection changed, a running subagent's snapshot moves to that `Stop`'s snapshot.
+   The turn also counts the subagent's edits made before the turn's baseline, so each edit is counted once.
+1. On `SubagentStop`, compare with that snapshot and add the changed paths to the pending set.
+   If the parent's turn is still open, its `Stop` counts the run once together with that turn.
    Otherwise the run counts as one changed turn.
-1. When a run brings the count to the interval, the parent's next `Stop` returns the request, even if that turn changed nothing.
+1. When a run brings the count to the interval, the request waits for the next `Stop` of an observed turn in the workspace.
+   That `Stop` returns it even if its turn changed nothing.
    A block decision on `SubagentStop` would keep the subagent running instead of reaching the parent.
 
-Paths handed to a turn that ends without `Stop`, such as an interrupted one, move on to the session's next turn.
+A turn handed a run's paths but ending without `Stop`, such as an interrupted one, passes the count on to the session's next turn.
+A turn whose own selection changed still counts the runs handed to it.
 A `SubagentStop` without a recorded start, a run whose selection changed, and an unchanged run are not counted.
 
 ## Selected documents and state
@@ -102,8 +105,8 @@ Selection follows these rules:
 - **Patterns**: A single `*` stays within a path segment; `**` spans zero or more directories.
   Patterns must be relative and cannot contain parent traversal.
   An invalid `hook.include`, such as an empty list or a non-string entry, is a configuration error.
-- **Selection changes**: A turn whose selection differs between its two events is not counted, because the snapshots would differ without any edit.
-  This covers editing `hook.include` during a turn and registering the two events with different `--include` options.
+- **Selection changes**: A turn or subagent run whose selection differs between its two events is not counted, because the snapshots would differ without any edit.
+  This covers editing `hook.include` during a turn and registering the events with different `--include` options.
 - **Skipped paths**: Hidden directories, `targets`, dependency directories, symbolic links, and agent instruction files (`AGENTS.md`, `CLAUDE.md`) are skipped regardless of patterns.
   The hook maintains project knowledge, not agent instruction policy.
 - **Configuration**: The `.ascent.toml` file is configuration, not a refinement document; changes to it do not advance the counter.
@@ -199,8 +202,8 @@ Supply the options actually used by the host: the diagnostic reports the request
 
 Tests exercise the script with isolated workspaces and event payloads, including count persistence, repeated events, target exclusion, concurrent sessions, and malformed state.
 These establish script behavior, not live host callback delivery or the quality of the model's resulting document edits.
-Verify delivery of a matching `UserPromptSubmit` and `Stop` pair in the installed host before relying on the cadence.
-A new or untrusted command can be skipped by the host, so verify both registrations before relying on the cadence.
+Verify delivery of a matching `UserPromptSubmit` and `Stop` pair, and of a `SubagentStart` and `SubagentStop` pair when registered, in the installed host before relying on the cadence.
+A new or untrusted command can be skipped by the host, so verify every registration before relying on the cadence.
 
 The hook has these further limitations:
 
